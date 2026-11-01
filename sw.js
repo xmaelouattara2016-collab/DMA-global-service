@@ -1,4 +1,4 @@
-var CACHE = "gs-v4";
+var CACHE = "gs-v5";
 self.addEventListener("install", function (e) { self.skipWaiting(); });
 self.addEventListener("activate", function (e) {
   e.waitUntil(caches.keys().then(function (keys) {
