@@ -19,6 +19,7 @@
 :root {
   --bg: #FFFFFF; --surface: #FFFFFF; --ink: #14213D; --muted: #5A6A85; --line: #D8DFE9;
   --accent: #0E6B5C; --accent-ink: #FFFFFF; --good: #17803D; --bad: #B42318; --warn: #A15C07; --field: #F3F6FA;
+  --c1: #0E6B5C; --c2: #B87A1F; --c3: #6B5BB5; --c4: #3B7AB8;
   --font-display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
   --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-num: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
@@ -27,12 +28,12 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --bg: #0A1A33; --surface: #102545; --ink: #E7EEFA; --muted: #9FB1CF; --line: #27406B;
-    --accent: #4FC3A8; --accent-ink: #062018; --good: #4CD08A; --bad: #FF8E84; --warn: #F0B952; --field: #0C2140; color-scheme: dark;
+    --c1: #4FC3A8; --c2: #E0A94A; --c3: #A596F0; --c4: #6FB0F0; --accent: #4FC3A8; --accent-ink: #062018; --good: #4CD08A; --bad: #FF8E84; --warn: #F0B952; --field: #0C2140; color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
   --bg: #0A1A33; --surface: #102545; --ink: #E7EEFA; --muted: #9FB1CF; --line: #27406B;
-  --accent: #4FC3A8; --accent-ink: #062018; --good: #4CD08A; --bad: #FF8E84; --warn: #F0B952; --field: #0C2140; color-scheme: dark;
+  --c1: #4FC3A8; --c2: #E0A94A; --c3: #A596F0; --c4: #6FB0F0; --accent: #4FC3A8; --accent-ink: #062018; --good: #4CD08A; --bad: #FF8E84; --warn: #F0B952; --field: #0C2140; color-scheme: dark;
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.5;
@@ -117,6 +118,14 @@ button.iconbtn svg { width: 18px; height: 18px; }
 .led b { font-family: var(--font-num); font-weight: 500; font-variant-numeric: tabular-nums; text-align: right; overflow-wrap: anywhere; }
 .led.sub { font-weight: 600; } .led.sub b { font-weight: 600; }
 .led.tot { font-size: 1.05rem; font-weight: 700; border-bottom: 2px solid var(--line); } .led.tot b { font-weight: 700; }
+.rule { border-top: 1px solid var(--line); }
+.bar { display: flex; height: 12px; border-radius: 6px; background: var(--field); border: 1px solid var(--line); overflow: hidden; }
+.bar > i { display: block; height: 100%; }
+.sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 8px; }
+.legend { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px 16px; }
+.led.soft { color: var(--muted); } .led.plain { border-bottom: 0; padding: 0; }
+.led.topline { border-top: 1px solid var(--line); border-bottom: 0; padding-top: 12px; font-size: 1.02rem; }
+h2.sect { margin-top: 10px; font-size: 1.1rem; }
 h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--accent); }
 .mini-grid .stat { font-size: 0.98rem; }
 @media (min-width: 640px) { .who { align-items: flex-end; } }
@@ -379,10 +388,40 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
     T.margin = T.revenue > 0 ? T.profit / T.revenue * 100 : 0;
     return { total: T, present: present };
   }
-  function costTiles(t) {
-    return '<div class="pair">' + statTile("Achat fournisseur", money(t.purchase), fmt(t.shipped) + " sachets") + statTile("Transport", money(t.transport)) + statTile("Frais d\'arrivée", money(t.arrival)) + statTile("Dépenses", money(t.expenses), "Campagnes : " + money(t.campaigns) + " · Autres : " + money(t.others)) + "</div>";
-  }
   var PROFIT_NOTE = "Ventes − coût des sachets vendus (achat + transport + arrivée) − dépenses";
+
+  function lotView(t, label) {
+    var avgBuy = t.shipped > 0 ? t.purchase / t.shipped : 0;
+    var avgPrice = t.sold > 0 ? t.revenue / t.sold : 0;
+    var out = t.cost + t.expenses;
+    var cover = avgPrice > 0 ? Math.max(0, Math.ceil(out / avgPrice)) : null;
+    var pctSold = t.shipped > 0 ? Math.max(0, Math.min(100, t.sold / t.shipped * 100)) : 0;
+    var parts = [
+      { c: "var(--c1)", name: "Achat des sachets", v: t.purchase },
+      { c: "var(--c2)", name: "Transport et frais", v: t.transport + t.arrival },
+      { c: "var(--c3)", name: "Campagnes", v: t.campaigns },
+      { c: "var(--c4)", name: "Autres dépenses", v: t.others }
+    ];
+    var segs = parts.map(function (p) { return out > 0 && p.v > 0 ? '<i style="width:' + (p.v / out * 100) + "%;background:" + p.c + '"></i>' : ""; }).join("");
+    var legend = parts.map(function (p) {
+      return '<div><div class="small"><span class="sw" style="background:' + p.c + '"></span>' + p.name + ' <span class="muted">' + (out > 0 ? Math.round(p.v / out * 100) : 0) + NB + "%</span></div><div class=\"stat\">" + money(p.v) + "</div></div>";
+    }).join("");
+    return '<section class="panel"><h2>Le lot · ' + esc(label) + "</h2>" +
+      led("Sachets achetés et envoyés", fmt(t.shipped)) + led("Prix d\'achat moyen par sachet", money(avgBuy)) + led("Transport payé", money(t.transport)) + led("Autres frais d\'arrivée", money(t.arrival)) +
+      led("Coût du lot à l\'arrivée", money(t.cost), "", "sub") + led("Coût de revient par sachet", money(t.avgCost), "", "soft") + "</section>" +
+      '<section class="panel result"><div class="bigline"><span class="eyebrow">Bénéfice net · ' + esc(label) + '</span><span class="big ' + cls(t.profit) + '">' + money(t.profit) + '</span><span class="muted small">' + PROFIT_NOTE + "</span></div>" +
+      '<div class="pair">' + statTile("Chiffre d\'affaires", money(t.revenue), fmt(t.sold) + " sachets vendus") +
+      statTile("Reste à recevoir", money(t.toRemit), "Déjà reçu : " + money(t.remitted), t.toRemit > 0 ? "warn" : "pos") +
+      statTile("Prix de vente moyen", t.sold > 0 ? money(avgPrice) : "—", "Par sachet vendu") +
+      statTile("Marge", t.revenue > 0 ? pct(t.margin) : "—", "Bénéfice sur le chiffre d\'affaires") +
+      statTile("Pour couvrir les dépenses", cover == null ? "—" : fmt(cover) + " sachets", "Au prix de vente moyen") +
+      statTile("Valeur du stock restant", money(t.stockValue), fmt(t.remaining) + " sachets, au coût") + "</div>" +
+      '<div class="rule"></div>' +
+      '<div class="led plain"><span class="eyebrow">Stock vendu</span><b>' + fmt(t.sold) + " vendus sur " + fmt(t.shipped) + " · reste " + fmt(t.remaining) + "</b></div>" +
+      '<div class="bar"><i style="width:' + pctSold + '%;background:var(--accent)"></i></div>' +
+      '<div class="eyebrow">Où part l\'argent</div><div class="bar">' + segs + '</div><div class="legend">' + legend + "</div>" +
+      '<div class="led sub topline"><span>Total des dépenses</span><b>' + money(out) + "</b></div></section>";
+  }
 
   function ownerTotal(d) {
     var A = allStats(d), T = A.total;
@@ -391,34 +430,20 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
       return '<div class="agentcard"><div class="agname"><button type="button" class="link" data-act="tab" data-tab="' + esc(c) + '">' + esc(c) + "</button></div><div class=\"mini-grid\">" +
         mini("Envoyés", fmt(st.shipped)) + mini("Vendus", fmt(st.sold)) + mini("Restants", fmt(st.remaining)) + mini("Ventes", fmt(st.revenue)) + mini("Versé", fmt(st.remitted)) + mini("À recevoir", fmt(st.toRemit), st.toRemit > 0 ? "warn" : "") + mini("Dépenses", fmt(st.expenses)) + mini("Bénéfice", fmt(st.profit), cls(st.profit)) + "</div></div>";
     }).join("");
-    return '<section class="panel result"><div class="bigline"><span class="eyebrow">Bénéfice net, tous pays</span><span class="big ' + cls(T.profit) + '">' + money(T.profit) + '</span><span class="muted small">' + PROFIT_NOTE + '</span></div>' +
-      '<div class="pair">' + statTile("Chiffre d\'affaires", money(T.revenue), fmt(T.sold) + " sachets vendus") + statTile("Reste à recevoir des agents", money(T.toRemit), "Déjà reçu : " + money(T.remitted), T.toRemit > 0 ? "warn" : "pos") + statTile("Stock chez les agents", fmt(T.remaining) + " sachets", fmt(T.shipped) + " envoyés") + statTile("Coût des sachets vendus", money(T.cogs), "Coût moyen : " + money(T.avgCost) + " par sachet") + "</div>" + costTiles(T) + "</section>" +
-      '<section class="panel"><h2>Par pays</h2><div class="hint">Montants en FCFA. Touche un pays pour voir le détail, ou l\'onglet Détails pour tout le parcours de l\'achat à la vente.</div>' +
-      (cards ? '<div class="rows">' + cards + "</div>" : '<div class="muted small">Aucun agent validé pour le moment. Va dans l\'onglet Agents.</div>') + "</section>";
+    var per = A.present.map(function (c) { return lotView(countryStats(d, c).total, c); }).join("");
+    return lotView(T, "Tous pays") +
+      '<section class="panel"><h2>Par pays</h2><div class="hint">Montants en FCFA. Touche un pays pour ouvrir son onglet.</div>' +
+      (cards ? '<div class="rows">' + cards + "</div>" : '<div class="muted small">Aucun agent validé pour le moment. Va dans l\'onglet Agents.</div>') + "</section>" +
+      (per ? '<h2 class="sect">Détail de chaque pays</h2>' + per : "");
   }
 
   /* ----- onglet Détails : de l'achat à la vente ----- */
   function led(label, value, klass, extra) { return '<div class="led' + (extra ? " " + extra : "") + '"><span>' + label + '</span><b class="' + (klass || "") + '">' + value + "</b></div>"; }
   function pct(v) { return String(Math.round(v * 10) / 10).replace(".", ",") + NB + "%"; }
-  function ledger(t, title) {
-    return '<section class="panel"><h2>' + esc(title) + "</h2>" +
-      '<h3 class="grp">1 · Achat et envoi</h3>' +
-      led("Sachets achetés et envoyés", fmt(t.shipped)) + led("Achat chez le fournisseur", money(t.purchase)) + led("Transport", money(t.transport)) + led("Frais d\'arrivée", money(t.arrival)) +
-      led("Coût total de l\'achat", money(t.cost), "", "sub") + led("Coût moyen par sachet", money(t.avgCost)) +
-      '<h3 class="grp">2 · Vente</h3>' +
-      led("Sachets vendus", fmt(t.sold)) + led("Sachets restants", fmt(t.remaining)) + led("Valeur du stock restant (au coût)", money(t.stockValue)) +
-      led("Chiffre d\'affaires", money(t.revenue), "", "sub") + led("Déjà reçu des agents", money(t.remitted)) + led("Reste à recevoir", money(t.toRemit), t.toRemit > 0 ? "warn" : "") +
-      '<h3 class="grp">3 · Dépenses</h3>' +
-      led("Campagnes réseaux sociaux", money(t.campaigns)) + led("Autres dépenses", money(t.others)) + led("Total des dépenses", money(t.expenses), "", "sub") +
-      '<h3 class="grp">4 · Bénéfice</h3>' +
-      led("Chiffre d\'affaires", money(t.revenue)) + led("− Coût des sachets vendus", money(t.cogs)) + led("− Dépenses", money(t.expenses)) +
-      led("Bénéfice net", money(t.profit), cls(t.profit), "tot") + led("Marge sur le chiffre d\'affaires", pct(t.margin)) + "</section>";
-  }
   function ownerDetails(d) {
     var A = allStats(d), nameOf = {}, countryOf = {};
     d.profiles.forEach(function (p) { nameOf[p.id] = p.name || p.email; countryOf[p.id] = p.country || ""; });
-    var html = ledger(A.total, "Tous pays · de l\'achat à la vente");
-    A.present.forEach(function (c) { html += ledger(countryStats(d, c).total, c); });
+    var html = "";
     var ships = d.shipments.slice(0, 80).map(function (s) {
       var q = num(s.qty), u = num(s.unit_cost), tr = num(s.transport), ar = num(s.arrival_fees), tot = q * u + tr + ar;
       return '<div class="agentcard"><div class="agname">' + dateFr(s.ship_date) + " · " + esc(nameOf[s.agent_id] || "") + ' <span class="muted small">(' + esc(countryOf[s.agent_id]) + ')</span></div><div class="mini-grid">' +
@@ -486,8 +511,7 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
       '<div class="field wide"><label for="f3-amount">Montant dépensé (FCFA)</label><input id="f3-amount" name="amount" type="number" inputmode="decimal" min="1" step="any" required></div>' +
       '<div class="field wide"><button class="primary" type="submit">Enregistrer la dépense</button></div></form></details>';
 
-    return '<section class="panel result"><div class="bigline"><span class="eyebrow">Bénéfice net · ' + esc(country) + '</span><span class="big ' + cls(t.profit) + '">' + money(t.profit) + '</span><span class="muted small">Ventes − coût des sachets vendus (achat + transport + arrivée) − dépenses</span></div>' +
-      '<div class="pair">' + statTile("Chiffre d\'affaires", money(t.revenue), fmt(t.sold) + " sachets vendus") + statTile("Reste à recevoir", money(t.toRemit), "Déjà reçu : " + money(t.remitted), t.toRemit > 0 ? "warn" : "pos") + statTile("Stock restant chez l\'agent", fmt(t.remaining) + " sachets", fmt(t.shipped) + " envoyés") + statTile("Coût des sachets vendus", money(t.cogs), "Coût moyen : " + money(t.avgCost) + " par sachet") + "</div>" + costTiles(t) + "</section>" +
+    return lotView(t, country) +
       '<section class="panel"><h2>Agents</h2>' + (agentCards ? '<div class="rows">' + agentCards + "</div>" : '<div class="muted small">Aucun agent.</div>') + "</section>" +
       forms + expForm +
       '<section class="panel"><h2>Ventes par jour</h2>' + tableWrap("<th>Jour</th><th>Sachets</th><th>Montant (FCFA)</th>", dayRows || emptyRow(3, "Aucune vente."), "", 0) + "</section>" +
