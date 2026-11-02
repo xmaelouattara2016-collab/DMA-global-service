@@ -127,6 +127,13 @@ button.iconbtn svg { width: 18px; height: 18px; }
 .led.topline { border-top: 1px solid var(--line); border-bottom: 0; padding-top: 12px; font-size: 1.02rem; }
 .foot { margin-top: 10px; padding-top: 18px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
 .renamebox { display: flex; gap: 8px; flex: 1 1 100%; min-width: 0; max-width: 100%; } .renamebox input { flex: 1 1 0; width: auto; min-width: 0; } .renamebox button { flex: 0 0 auto; max-width: 45%; }
+.tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+button.tile { aspect-ratio: 1 / 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 8px; min-height: 0; border: 0; border-radius: 16px; color: #fff; font-size: 0.84rem; line-height: 1.2; text-align: center; }
+button.tile:hover { border: 0; filter: brightness(1.08); }
+button.tile .ico { margin: 0; color: #fff; vertical-align: 0; }
+button.tile svg { width: 40px; height: 40px; }
+button.tile.blue { background: #2563EB; } button.tile.green { background: #16845B; } button.tile.violet { background: #7C3AED; }
+button.tile.on { outline: 3px solid var(--ink); outline-offset: 2px; }
 h2.sect { margin-top: 10px; font-size: 1.1rem; }
 h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--accent); }
 .mini-grid .stat { font-size: 0.98rem; }
@@ -282,7 +289,7 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
   var api = window.__API__ || null;
 
   /* ---------- état ---------- */
-  var S = { session: null, profile: null, data: null, tab: lsGet(TAB_KEY) || "total", authMode: "login", authMsg: "", authOk: "", authEmail: "", authName: "", pwOpen: false, pwMsg: "", nameOpen: false, nameMsg: "", busy: false, loading: true, updated: null, armed: null, loadError: "" };
+  var S = { session: null, profile: null, data: null, tab: lsGet(TAB_KEY) || "total", authMode: "login", authMsg: "", authOk: "", authEmail: "", authName: "", action: null, pwOpen: false, pwMsg: "", nameOpen: false, nameMsg: "", busy: false, loading: true, updated: null, armed: null, loadError: "" };
   var armTimer = null, pollTimer = null, refreshTimer = null, pendingRender = false, liveOn = false;
 
   function toast(text, bad) {
@@ -491,6 +498,12 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
   function agentOptions(agents) {
     return agents.map(function (a) { return '<option value="' + esc(a.id) + '">' + esc(a.name || a.email) + "</option>"; }).join("");
   }
+  function actionTiles() {
+    var items = [["shipment", "truck", "Envoyer du stock", "blue"], ["remittance", "money", "Versement reçu", "green"], ["expense", "social", "Dépense de campagne", "violet"]];
+    return '<section class="tiles" aria-label="Actions">' + items.map(function (it) {
+      return '<button type="button" class="tile ' + it[3] + (S.action === it[0] ? " on" : "") + '" data-act="action" data-kind="' + it[0] + '" aria-pressed="' + (S.action === it[0]) + '">' + ico(it[1]) + "<span>" + it[2] + "</span></button>";
+    }).join("") + "</section>";
+  }
   function ownerCountry(d, country) {
     var st = countryStats(d, country), t = st.total, agents = st.agents;
     var nameOf = {}; d.profiles.forEach(function (p) { nameOf[p.id] = p.name || p.email; });
@@ -520,31 +533,36 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
     }).join("");
 
     var lastCost = lsGet(COST_KEY) || "";
-    var forms = agents.length ? (
-      '<details class="panel fold"><summary>' + ico("truck") + 'Envoyer du stock à un agent</summary><form data-form="shipment" class="fields" novalidate>' +
+    var shipPanel = (
+      '<section class="panel"><h2>' + ico("truck") + 'Envoyer du stock à un agent</h2><form data-form="shipment" class="fields" novalidate>' +
       '<div class="field"><label for="f1-agent">Agent</label><select id="f1-agent" name="agent_id">' + agentOptions(agents) + "</select></div>" +
       '<div class="field"><label for="f1-date">Date</label><input id="f1-date" name="date" type="date" value="' + today() + '"></div>' +
       '<div class="field"><label for="f1-qty">Sachets envoyés</label><input id="f1-qty" name="qty" type="number" inputmode="numeric" min="1" step="1" required></div>' +
       '<div class="field"><label for="f1-cost">Prix d\'achat par sachet chez le fournisseur (FCFA)</label><input id="f1-cost" name="unit_cost" type="number" inputmode="decimal" min="0" step="any" value="' + esc(lastCost) + '" required></div>' +
       '<div class="field"><label for="f1-tr">Transport vers ce pays, total (FCFA)</label><input id="f1-tr" name="transport" type="number" inputmode="decimal" min="0" step="any" placeholder="0"></div>' +
       '<div class="field"><label for="f1-ar">Frais d\'arrivée, total (FCFA)</label><input id="f1-ar" name="arrival_fees" type="number" inputmode="decimal" min="0" step="any" placeholder="0"><span class="hint">Les agents ne voient pas ces coûts.</span></div>' +
-      '<div class="field wide"><button class="primary" type="submit">Enregistrer l\'envoi</button></div></form></details>' +
-      '<details class="panel fold"><summary>' + ico("money") + 'Enregistrer un versement reçu</summary><form data-form="remittance" class="fields" novalidate>' +
+      '<div class="field wide"><button class="primary" type="submit">Enregistrer l\'envoi</button></div></form></section>'
+    );
+    var remPanel = (
+      '<section class="panel"><h2>' + ico("money") + 'Enregistrer un versement reçu</h2><form data-form="remittance" class="fields" novalidate>' +
       '<div class="field"><label for="f2-agent">Agent</label><select id="f2-agent" name="agent_id">' + agentOptions(agents) + "</select></div>" +
       '<div class="field"><label for="f2-date">Date</label><input id="f2-date" name="date" type="date" value="' + today() + '"></div>' +
       '<div class="field wide"><label for="f2-amount">Montant reçu (FCFA)</label><input id="f2-amount" name="amount" type="number" inputmode="decimal" min="1" step="any" required></div>' +
-      '<div class="field wide"><button class="primary" type="submit">Enregistrer le versement</button></div></form></details>'
-    ) : '<section class="panel"><div class="muted">Aucun agent dans ce pays pour le moment.</div></section>';
-    var expForm = '<details class="panel fold"><summary>' + ico("social") + 'Ajouter une dépense de campagne</summary><form data-form="expense" class="fields" novalidate><input type="hidden" name="country" value="' + esc(country) + '">' +
+      '<div class="field wide"><button class="primary" type="submit">Enregistrer le versement</button></div></form></section>'
+    );
+    var noAgent = '<section class="panel"><div class="muted">Aucun agent dans ce pays pour le moment.</div></section>';
+    var expPanel = '<section class="panel"><h2>' + ico("social") + 'Ajouter une dépense de campagne</h2><form data-form="expense" class="fields" novalidate><input type="hidden" name="country" value="' + esc(country) + '">' +
       '<div class="field"><label for="f3-kind">Type de dépense</label><select id="f3-kind" name="kind"><option value="campagne">Campagne réseaux sociaux</option><option value="autre">Autre dépense</option></select></div>' +
       '<div class="field"><label for="f3-label">Description</label><input id="f3-label" name="label" type="text" value="TikTok" required></div>' +
       '<div class="field"><label for="f3-date">Date</label><input id="f3-date" name="date" type="date" value="' + today() + '"></div>' +
       '<div class="field wide"><label for="f3-amount">Montant dépensé (FCFA)</label><input id="f3-amount" name="amount" type="number" inputmode="decimal" min="1" step="any" required></div>' +
-      '<div class="field wide"><button class="primary" type="submit">Enregistrer la dépense</button></div></form></details>';
+      '<div class="field wide"><button class="primary" type="submit">Enregistrer la dépense</button></div></form></section>';
+
+    var panel = S.action === "shipment" ? (agents.length ? shipPanel : noAgent) : S.action === "remittance" ? (agents.length ? remPanel : noAgent) : S.action === "expense" ? expPanel : "";
 
     return lotView(t, country) +
       '<section class="panel"><h2>Agents</h2>' + (agentCards ? '<div class="rows">' + agentCards + "</div>" : '<div class="muted small">Aucun agent.</div>') + "</section>" +
-      forms + expForm +
+      actionTiles() + panel +
       '<section class="panel"><h2>Ventes par jour</h2>' + tableWrap("<th>Jour</th><th>Sachets</th><th>Montant (FCFA)</th>", dayRows || emptyRow(3, "Aucune vente."), "", 0) + "</section>" +
       '<section class="panel"><h2>Dernières ventes saisies</h2>' + tableWrap("<th>Jour</th><th>Agent</th><th>Sachets</th><th>Montant</th><th>Client</th><th></th>", saleRows || emptyRow(6, "Aucune vente."), "", 560) + "</section>" +
       '<section class="panel"><h2>Envois, versements et dépenses</h2><h3>Stock envoyé</h3>' + tableWrap("<th>Jour</th><th>Agent</th><th>Sachets</th><th>Achat/sachet</th><th>Transport</th><th>Arrivée</th><th></th>", cShip || emptyRow(7, "Aucun envoi."), "", 620) +
@@ -644,7 +662,8 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
   $app.addEventListener("click", function (e) {
     var b = e.target.closest("[data-act]"); if (!b) return;
     var act = b.getAttribute("data-act"), id = b.getAttribute("data-id");
-    if (act === "tab") { S.tab = b.getAttribute("data-tab"); lsSet(TAB_KEY, S.tab); render(true); window.scrollTo(0, 0); }
+    if (act === "action") { var kd = b.getAttribute("data-kind"); S.action = S.action === kd ? null : kd; render(true); var pn = $app.querySelector(".tiles + .panel"); if (pn) pn.scrollIntoView({ block: "nearest", behavior: "smooth" }); }
+    else if (act === "tab") { S.tab = b.getAttribute("data-tab"); S.action = null; lsSet(TAB_KEY, S.tab); render(true); window.scrollTo(0, 0); }
     else if (act === "refresh") { refresh(true).then(function () { toast("Mis à jour."); }); }
     else if (act === "logout") { api.signOut().then(function () { liveOn = false; startSession(null); }); }
     else if (act === "theme") { var cur = themeMode(); lsSet(THEME_KEY, cur === "auto" ? "light" : cur === "light" ? "dark" : "auto"); applyTheme(); render(true); }
@@ -717,15 +736,17 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
     } else if (kind === "shipment") {
       var sq = num(v("qty")), sc = num(v("unit_cost")), st = Math.max(0, num(v("transport"))), sa = Math.max(0, num(v("arrival_fees")));
       if (!v("agent_id") || sq < 1 || v("unit_cost") === "") { toast("Choisis l'agent, le nombre de sachets et le prix d'achat.", true); return; }
-      lsSet(COST_KEY, v("unit_cost"));
+      lsSet(COST_KEY, v("unit_cost")); S.action = null;
       run(api.insert("shipments", { agent_id: v("agent_id"), ship_date: v("date") || today(), qty: Math.round(sq), unit_cost: sc, transport: st, arrival_fees: sa }), "Envoi enregistré.");
     } else if (kind === "remittance") {
       var ra = num(v("amount"));
       if (!v("agent_id") || ra <= 0) { toast("Choisis l'agent et le montant.", true); return; }
+      S.action = null;
       run(api.insert("remittances", { agent_id: v("agent_id"), paid_date: v("date") || today(), amount: ra }), "Versement enregistré.");
     } else if (kind === "expense") {
       var ea = num(v("amount"));
       if (ea <= 0 || !v("label")) { toast("Indique la description et le montant.", true); return; }
+      S.action = null;
       run(api.insert("expenses", { country: v("country"), exp_date: v("date") || today(), label: v("label"), kind: v("kind") === "autre" ? "autre" : "campagne", amount: ea }), "Dépense enregistrée.");
     }
   });
