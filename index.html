@@ -127,12 +127,13 @@ button.iconbtn svg { width: 18px; height: 18px; }
 .led.topline { border-top: 1px solid var(--line); border-bottom: 0; padding-top: 12px; font-size: 1.02rem; }
 .foot { margin-top: 10px; padding-top: 18px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
 .renamebox { display: flex; gap: 8px; flex: 1 1 100%; min-width: 0; max-width: 100%; } .renamebox input { flex: 1 1 0; width: auto; min-width: 0; } .renamebox button { flex: 0 0 auto; max-width: 45%; }
-.tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.tiles { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+@media (min-width: 640px) { .tiles { grid-template-columns: repeat(4, 1fr); } }
 button.tile { aspect-ratio: 1 / 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 8px; min-height: 0; border: 0; border-radius: 16px; color: #fff; font-size: 0.84rem; line-height: 1.2; text-align: center; }
 button.tile:hover { border: 0; filter: brightness(1.08); }
 button.tile .ico { margin: 0; color: #fff; vertical-align: 0; }
 button.tile svg { width: 40px; height: 40px; }
-button.tile.blue { background: #2563EB; } button.tile.green { background: #16845B; } button.tile.violet { background: #7C3AED; }
+button.tile.blue { background: #2563EB; } button.tile.green { background: #16845B; } button.tile.violet { background: #7C3AED; } button.tile.orange { background: #C2410C; }
 button.tile.on { outline: 3px solid var(--ink); outline-offset: 2px; }
 h2.sect { margin-top: 10px; font-size: 1.1rem; }
 h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--accent); }
@@ -184,6 +185,7 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
     truck: '<path d="M3 7h11v9H3z"/><path d="M14 10h4l3 3v3h-7z"/><circle cx="7.5" cy="17.5" r="1.8"/><circle cx="17.5" cy="17.5" r="1.8"/>',
     money: '<rect x="2.5" y="6" width="19" height="12" rx="2"/><circle cx="12" cy="12" r="2.6"/><path d="M6 9.5h.01M18 14.5h.01"/>',
     social: '<circle cx="6" cy="12" r="2.6"/><circle cx="18" cy="6" r="2.6"/><circle cx="18" cy="18" r="2.6"/><path d="M8.3 10.8l7.4-3.6M8.3 13.2l7.4 3.6"/>',
+    wallet: '<path d="M3 7a2 2 0 0 1 2-2h13v4"/><path d="M3 7v11a2 2 0 0 0 2 2h14a1 1 0 0 0 1-1V9H5a2 2 0 0 1-2-2z"/><circle cx="16.5" cy="14.5" r="1.2"/>',
     sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M5.3 18.7l1.6-1.6M17.1 6.9l1.6-1.6"/>',
     moon: '<path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"/>',
     auto: '<circle cx="12" cy="12" r="8.5"/><path d="M12 3.5v17"/><path d="M12 3.5a8.5 8.5 0 0 1 0 17z" fill="currentColor"/>'
@@ -205,7 +207,7 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
   /* ---------- calculs (fonctions pures) ---------- */
   function agg(data, ids) {
     var set = {}; ids.forEach(function (id) { set[id] = 1; });
-    var r = { shipped: 0, purchase: 0, transport: 0, arrival: 0, cost: 0, sold: 0, revenue: 0, remitted: 0 };
+    var r = { shipped: 0, purchase: 0, transport: 0, arrival: 0, cost: 0, sold: 0, revenue: 0, remitted: 0, spent: 0 };
     data.shipments.forEach(function (s) {
       if (!set[s.agent_id]) return;
       var q = num(s.qty), p = q * num(s.unit_cost);
@@ -218,20 +220,22 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
     r.remaining = r.shipped - r.sold;
     r.cogs = r.sold * r.avgCost;
     r.stockValue = Math.max(0, r.remaining) * r.avgCost;
-    r.toRemit = r.revenue - r.remitted;
+    (data.expenses || []).forEach(function (e) { if (e.agent_id && set[e.agent_id]) r.spent += num(e.amount); });
+    r.toRemit = r.revenue - r.remitted - r.spent;
     return r;
   }
   function agentsOf(data, country) {
     return data.profiles.filter(function (p) { return p.role === "agent" && p.country === country; });
   }
-  var SUMKEYS = ["shipped", "sold", "remaining", "revenue", "remitted", "toRemit", "cogs", "purchase", "transport", "arrival", "cost", "stockValue", "campaigns", "others", "expenses", "profit"];
+  var SUMKEYS = ["shipped", "sold", "remaining", "revenue", "remitted", "spent", "toRemit", "cogs", "purchase", "transport", "arrival", "cost", "stockValue", "campaigns", "others", "expenses", "profit"];
   function countryStats(data, country) {
     var agents = agentsOf(data, country);
     var rows = agents.map(function (a) { var r = agg(data, [a.id]); r.agent = a; return r; });
     var t = {}; SUMKEYS.forEach(function (k) { t[k] = 0; });
     rows.forEach(function (r) { SUMKEYS.forEach(function (k) { if (r[k] != null) t[k] += r[k]; }); });
+    var ids = {}; agents.forEach(function (a) { ids[a.id] = 1; });
     data.expenses.forEach(function (e) {
-      if (e.country !== country) return;
+      if (e.agent_id ? !ids[e.agent_id] : e.country !== country) return;
       if (e.kind === "autre") t.others += num(e.amount); else t.campaigns += num(e.amount);
     });
     t.expenses = t.campaigns + t.others;
@@ -275,8 +279,8 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
           .then(function (a) { return { profiles: a[0], shipments: a[1], sales: a[2], remittances: a[3], expenses: a[4] }; });
       },
       loadAgent: function () {
-        return Promise.all([all("my_shipments", "ship_date"), all("sales", "sale_date"), all("remittances", "paid_date")])
-          .then(function (a) { return { profiles: [], shipments: a[0], sales: a[1], remittances: a[2], expenses: [] }; });
+        return Promise.all([all("my_shipments", "ship_date"), all("sales", "sale_date"), all("remittances", "paid_date"), all("expenses", "exp_date")])
+          .then(function (a) { return { profiles: [], shipments: a[0], sales: a[1], remittances: a[2], expenses: a[3] }; });
       },
       insert: function (table, row) { return sb.from(table).insert(row).then(ok); },
       remove: function (table, id) { return sb.from(table).delete().eq("id", id).then(ok); },
@@ -385,9 +389,24 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
     }).join("");
     var ship = d.shipments.slice(0, 15).map(function (s) { return "<tr><td>" + dateFr(s.ship_date) + "</td><td>" + fmt(s.qty) + "</td></tr>"; }).join("");
     var rem = d.remittances.slice(0, 15).map(function (s) { return "<tr><td>" + dateFr(s.paid_date) + "</td><td>" + fmt(s.amount) + "</td></tr>"; }).join("");
+    var dayMine = {};
+    (d.expenses || []).forEach(function (e) {
+      if (e.agent_id !== me) return;
+      var o = dayMine[e.exp_date] = dayMine[e.exp_date] || { total: 0, motifs: [] };
+      o.total += num(e.amount); o.motifs.push(e.label + " (" + fmt(e.amount) + ")");
+    });
+    var dayMineRows = Object.keys(dayMine).sort().reverse().slice(0, 30).map(function (k) {
+      return "<tr><td>" + dateFr(k) + "</td><td>" + fmt(dayMine[k].total) + '</td><td class="txt">' + esc(dayMine[k].motifs.join(" · ")) + "</td></tr>";
+    }).join("");
+    var agentPanel = S.action === "other" ? '<section class="panel"><h2>' + ico("wallet") + 'Autre dépense</h2><div class="hint">Une dépense faite avec l\'argent de tes ventes, quand le propriétaire te le demande. Elle est retirée de ce que tu dois verser. Seul le propriétaire peut la retirer.</div><form data-form="agentexp" class="fields" novalidate>' +
+      '<div class="field"><label for="x-date">Date</label><input id="x-date" name="date" type="date" value="' + today() + '"></div>' +
+      '<div class="field"><label for="x-amount">Montant dépensé (FCFA)</label><input id="x-amount" name="amount" type="number" inputmode="decimal" min="1" step="any" required></div>' +
+      '<div class="field wide"><label for="x-motif">Motif de la dépense</label><input id="x-motif" name="motif" type="text" autocomplete="off" placeholder="Ex : transport, repas, emballage" required></div>' +
+      '<div class="field wide"><button class="primary" type="submit"' + (S.busy ? " disabled" : "") + ">Enregistrer la dépense</button></div></form></section>" : "";
     return '<main>' + header() +
       '<section class="panel result"><div class="bigline"><span class="eyebrow">Sachets restants</span><span class="big ' + (a.remaining < 0 ? "neg" : "") + '">' + fmt(a.remaining) + '</span><span class="muted small">' + fmt(a.shipped) + " reçus · " + fmt(a.sold) + " vendus</span></div>" +
-      '<div class="pair">' + statTile("Total à me verser", money(a.revenue), "Somme de tes ventes") + statTile("Déjà versé", money(a.remitted)) + statTile("Reste à verser", money(a.toRemit), "", a.toRemit > 0 ? "warn" : "pos") + "</div></section>" +
+      '<div class="pair">' + statTile("Total à me verser", money(a.revenue), "Somme de tes ventes") + statTile("Déjà versé", money(a.remitted)) + (a.spent > 0 ? statTile("Dépenses payées", money(a.spent), "Prises sur ta recette") : "") + statTile("Reste à verser", money(a.toRemit), "", a.toRemit > 0 ? "warn" : "pos") + "</div></section>" +
+      actionTiles(["other"]) + agentPanel +
       '<section class="panel"><h2>Enregistrer une vente</h2><form data-form="sale" class="fields" novalidate>' +
       '<div class="field"><label for="s-date">Date</label><input id="s-date" name="date" type="date" value="' + today() + '" required></div>' +
       '<div class="field"><label for="s-qty">Sachets vendus</label><input id="s-qty" name="qty" type="number" inputmode="numeric" min="1" step="1" required></div>' +
@@ -396,6 +415,7 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
       '<div class="field wide"><button class="primary" type="submit"' + (S.busy ? " disabled" : "") + ">Enregistrer la vente</button></div></form></section>" +
       '<section class="panel"><h2>Mes dernières ventes</h2><div class="hint">Une vente enregistrée ne peut être retirée que par le propriétaire. En cas d\'erreur, préviens-le.</div>' +
       tableWrap("<th>Jour</th><th>Sachets</th><th>Montant</th><th>Client</th>", rows || emptyRow(4, "Aucune vente pour le moment."), "", 400) + "</section>" +
+      '<section class="panel"><h2>Mes autres dépenses par jour</h2><div class="hint">Dépenses payées avec ta recette, avec les motifs. Elles sont retirées de la somme à verser.</div>' + tableWrap("<th>Jour</th><th>Total du jour</th><th>Motifs</th>", dayMineRows || emptyRow(3, "Aucune dépense."), "", 420) + "</section>" +
       '<section class="panel"><h2>Stock reçu et sommes versées</h2><div class="pair2"><div>' +
       tableWrap("<th>Jour</th><th>Sachets reçus</th>", ship || emptyRow(2, "Aucun envoi."), "", 0) + "</div><div>" +
       tableWrap("<th>Jour</th><th>Versé (FCFA)</th>", rem || emptyRow(2, "Aucun versement."), "", 0) + "</div></div></section>" + footer() + "</main>";
@@ -449,7 +469,7 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
       led("Coût du lot à l\'arrivée", money(t.cost), "", "sub") + led("Coût de revient par sachet", money(t.avgCost), "", "soft") + "</section>" +
       '<section class="panel result"><div class="bigline"><span class="eyebrow">Bénéfice net · ' + esc(label) + '</span><span class="big ' + cls(t.profit) + '">' + money(t.profit) + '</span><span class="muted small">' + PROFIT_NOTE + "</span></div>" +
       '<div class="pair">' + statTile("Chiffre d\'affaires", money(t.revenue), fmt(t.sold) + " sachets vendus") +
-      statTile("Reste à recevoir", money(t.toRemit), "Déjà reçu : " + money(t.remitted), t.toRemit > 0 ? "warn" : "pos") +
+      statTile("Reste à recevoir", money(t.toRemit), "Déjà reçu : " + money(t.remitted) + (t.spent > 0 ? " · Dépenses payées par les agents : " + money(t.spent) : ""), t.toRemit > 0 ? "warn" : "pos") +
       statTile("Prix de vente moyen", t.sold > 0 ? money(avgPrice) : "—", "Par sachet vendu") +
       statTile("Marge", t.revenue > 0 ? pct(t.margin) : "—", "Bénéfice sur le chiffre d\'affaires") +
       statTile("Pour couvrir les dépenses", cover == null ? "—" : fmt(cover) + " sachets", "Au prix de vente moyen") +
@@ -489,7 +509,7 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
     }).join("");
     html += '<section class="panel"><h2>Détail des achats et envois</h2><div class="hint">Chaque envoi de stock, avec le prix chez le fournisseur, le transport et les frais d\'arrivée. Les agents ne voient pas ces coûts.</div>' + (ships ? '<div class="rows">' + ships + "</div>" : '<div class="muted small">Aucun envoi enregistré.</div>') + "</section>";
     var exps = d.expenses.slice(0, 80).map(function (e) {
-      return '<div class="row"><div class="rowtxt"><strong>' + esc(e.label) + '</strong><div class="hint">' + dateFr(e.exp_date) + " · " + esc(e.country) + " · " + (e.kind === "autre" ? "Autre dépense" : "Campagne") + '</div></div><b class="stat">' + money(e.amount) + "</b>" + delBtn("expenses", e.id, "cette dépense") + "</div>";
+      return '<div class="row"><div class="rowtxt"><strong>' + esc(e.label) + '</strong><div class="hint">' + dateFr(e.exp_date) + " · " + esc(e.country) + " · " + (e.agent_id ? "Payée par " + esc(nameOf[e.agent_id] || "l\'agent") + " (recette)" : e.kind === "autre" ? "Autre dépense" : "Campagne") + '</div></div><b class="stat">' + money(e.amount) + "</b>" + delBtn("expenses", e.id, "cette dépense") + "</div>";
     }).join("");
     html += '<section class="panel"><h2>Détail des dépenses</h2>' + (exps ? '<div class="rows">' + exps + "</div>" : '<div class="muted small">Aucune dépense enregistrée.</div>') + "</section>";
     return html;
@@ -498,10 +518,14 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
   function agentOptions(agents) {
     return agents.map(function (a) { return '<option value="' + esc(a.id) + '">' + esc(a.name || a.email) + "</option>"; }).join("");
   }
-  function actionTiles() {
-    var items = [["shipment", "truck", "Envoyer du stock", "blue"], ["remittance", "money", "Versement reçu", "green"], ["expense", "social", "Dépense de campagne", "violet"]];
-    return '<section class="tiles" aria-label="Actions">' + items.map(function (it) {
-      return '<button type="button" class="tile ' + it[3] + (S.action === it[0] ? " on" : "") + '" data-act="action" data-kind="' + it[0] + '" aria-pressed="' + (S.action === it[0]) + '">' + ico(it[1]) + "<span>" + it[2] + "</span></button>";
+  var TILES = {
+    shipment: ["truck", "Envoyer du stock", "blue"], remittance: ["money", "Versement reçu", "green"],
+    expense: ["social", "Dépense de campagne", "violet"], other: ["wallet", "Autre dépense", "orange"]
+  };
+  function actionTiles(kinds) {
+    return '<section class="tiles" aria-label="Actions">' + kinds.map(function (k) {
+      var it = TILES[k];
+      return '<button type="button" class="tile ' + it[2] + (S.action === k ? " on" : "") + '" data-act="action" data-kind="' + k + '" aria-pressed="' + (S.action === k) + '">' + ico(it[0]) + "<span>" + it[1] + "</span></button>";
     }).join("") + "</section>";
   }
   function ownerCountry(d, country) {
@@ -511,7 +535,9 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
 
     var agentCards = st.rows.map(function (r) {
       return '<div class="agentcard"><div class="agname">' + esc(r.agent.name || r.agent.email) + '</div><div class="mini-grid">' +
-        mini("Envoyés", fmt(r.shipped)) + mini("Vendus", fmt(r.sold)) + mini("Restants", fmt(r.remaining), r.remaining < 0 ? "neg" : "") + mini("Ventes", fmt(r.revenue)) + mini("Versé", fmt(r.remitted)) + mini("À recevoir", fmt(r.toRemit), r.toRemit > 0 ? "warn" : "") + "</div></div>";
+        mini("Envoyés", fmt(r.shipped)) + mini("Vendus", fmt(r.sold)) + mini("Restants", fmt(r.remaining), r.remaining < 0 ? "neg" : "") +
+        mini("Ventes (recette)", fmt(r.revenue)) + mini("Dépenses payées", fmt(r.spent)) + mini("Recette nette", fmt(r.revenue - r.spent)) +
+        mini("Versé", fmt(r.remitted)) + mini("À recevoir", fmt(r.toRemit), r.toRemit > 0 ? "warn" : "") + "</div></div>";
     }).join("");
 
     var cSales = d.sales.filter(function (s) { return ids[s.agent_id]; });
@@ -529,9 +555,19 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
       return "<tr><td>" + dateFr(s.paid_date) + '</td><td class="txt">' + esc(nameOf[s.agent_id] || "") + "</td><td>" + fmt(s.amount) + "</td><td>" + delBtn("remittances", s.id, "ce versement") + "</td></tr>";
     }).join("");
     var cExp = d.expenses.filter(function (e) { return e.country === country; }).slice(0, 20).map(function (e) {
-      return "<tr><td>" + dateFr(e.exp_date) + '</td><td class="txt">' + (e.kind === "autre" ? "Autre" : "Campagne") + '</td><td class="txt">' + esc(e.label) + "</td><td>" + fmt(e.amount) + "</td><td>" + delBtn("expenses", e.id, "cette dépense") + "</td></tr>";
+      return "<tr><td>" + dateFr(e.exp_date) + '</td><td class="txt">' + (e.agent_id ? "Payée par " + esc(nameOf[e.agent_id] || "l\'agent") : e.kind === "autre" ? "Autre" : "Campagne") + '</td><td class="txt">' + esc(e.label) + "</td><td>" + fmt(e.amount) + "</td><td>" + delBtn("expenses", e.id, "cette dépense") + "</td></tr>";
     }).join("");
 
+    var dayExp = {};
+    d.expenses.forEach(function (e) {
+      if (!e.agent_id || !ids[e.agent_id]) return;
+      var o = dayExp[e.exp_date] = dayExp[e.exp_date] || { total: 0, who: {}, motifs: [] };
+      o.total += num(e.amount); o.who[nameOf[e.agent_id] || ""] = 1; o.motifs.push(e.label + " (" + fmt(e.amount) + ")");
+    });
+    var dayExpRows = Object.keys(dayExp).sort().reverse().slice(0, 30).map(function (k) {
+      var o = dayExp[k];
+      return "<tr><td>" + dateFr(k) + '</td><td class="txt">' + esc(Object.keys(o.who).join(", ")) + "</td><td>" + fmt(o.total) + '</td><td class="txt">' + esc(o.motifs.join(" · ")) + "</td></tr>";
+    }).join("");
     var lastCost = lsGet(COST_KEY) || "";
     var shipPanel = (
       '<section class="panel"><h2>' + ico("truck") + 'Envoyer du stock à un agent</h2><form data-form="shipment" class="fields" novalidate>' +
@@ -550,19 +586,26 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
       '<div class="field wide"><label for="f2-amount">Montant reçu (FCFA)</label><input id="f2-amount" name="amount" type="number" inputmode="decimal" min="1" step="any" required></div>' +
       '<div class="field wide"><button class="primary" type="submit">Enregistrer le versement</button></div></form></section>'
     );
+    var otherPanel = '<section class="panel"><h2>' + ico("wallet") + 'Autre dépense</h2><div class="hint">Dépense payée par un agent avec l\'argent de sa recette. Elle est retirée de ce qu\'il doit verser.</div><form data-form="ownerexp" class="fields" novalidate><input type="hidden" name="country" value="' + esc(country) + '">' +
+      '<div class="field"><label for="f4-agent">Agent qui a payé</label><select id="f4-agent" name="agent_id">' + agentOptions(agents) + "</select></div>" +
+      '<div class="field"><label for="f4-date">Date</label><input id="f4-date" name="date" type="date" value="' + today() + '"></div>' +
+      '<div class="field wide"><label for="f4-amount">Montant dépensé (FCFA)</label><input id="f4-amount" name="amount" type="number" inputmode="decimal" min="1" step="any" required></div>' +
+      '<div class="field wide"><label for="f4-motif">Motif de la dépense</label><input id="f4-motif" name="motif" type="text" autocomplete="off" placeholder="Ex : transport, repas, emballage" required></div>' +
+      '<div class="field wide"><button class="primary" type="submit">Enregistrer la dépense</button></div></form></section>';
     var noAgent = '<section class="panel"><div class="muted">Aucun agent dans ce pays pour le moment.</div></section>';
     var expPanel = '<section class="panel"><h2>' + ico("social") + 'Ajouter une dépense de campagne</h2><form data-form="expense" class="fields" novalidate><input type="hidden" name="country" value="' + esc(country) + '">' +
-      '<div class="field"><label for="f3-kind">Type de dépense</label><select id="f3-kind" name="kind"><option value="campagne">Campagne réseaux sociaux</option><option value="autre">Autre dépense</option></select></div>' +
+      '<div class="field"><label for="f3-kind">Type de dépense</label><select id="f3-kind" name="kind"><option value="campagne">Campagne réseaux sociaux</option><option value="autre">Autre dépense (payée par moi)</option></select></div>' +
       '<div class="field"><label for="f3-label">Description</label><input id="f3-label" name="label" type="text" value="TikTok" required></div>' +
       '<div class="field"><label for="f3-date">Date</label><input id="f3-date" name="date" type="date" value="' + today() + '"></div>' +
       '<div class="field wide"><label for="f3-amount">Montant dépensé (FCFA)</label><input id="f3-amount" name="amount" type="number" inputmode="decimal" min="1" step="any" required></div>' +
       '<div class="field wide"><button class="primary" type="submit">Enregistrer la dépense</button></div></form></section>';
 
-    var panel = S.action === "shipment" ? (agents.length ? shipPanel : noAgent) : S.action === "remittance" ? (agents.length ? remPanel : noAgent) : S.action === "expense" ? expPanel : "";
+    var panel = S.action === "shipment" ? (agents.length ? shipPanel : noAgent) : S.action === "remittance" ? (agents.length ? remPanel : noAgent) : S.action === "expense" ? expPanel : S.action === "other" ? (agents.length ? otherPanel : noAgent) : "";
 
-    return lotView(t, country) +
-      '<section class="panel"><h2>Agents</h2>' + (agentCards ? '<div class="rows">' + agentCards + "</div>" : '<div class="muted small">Aucun agent.</div>') + "</section>" +
-      actionTiles() + panel +
+    return '<section class="panel"><h2>Agents · ' + esc(country) + "</h2>" + (agentCards ? '<div class="rows">' + agentCards + "</div>" : '<div class="muted small">Aucun agent.</div>') + "</section>" +
+      lotView(t, country) +
+      actionTiles(["shipment", "remittance", "expense", "other"]) + panel +
+      '<section class="panel"><h2>Autres dépenses par jour</h2><div class="hint">Dépenses payées par les agents avec leur recette, jour par jour, avec les motifs.</div>' + tableWrap("<th>Jour</th><th>Agent</th><th>Total</th><th>Motifs</th>", dayExpRows || emptyRow(4, "Aucune dépense."), "", 520) + "</section>" +
       '<section class="panel"><h2>Ventes par jour</h2>' + tableWrap("<th>Jour</th><th>Sachets</th><th>Montant (FCFA)</th>", dayRows || emptyRow(3, "Aucune vente."), "", 0) + "</section>" +
       '<section class="panel"><h2>Dernières ventes saisies</h2>' + tableWrap("<th>Jour</th><th>Agent</th><th>Sachets</th><th>Montant</th><th>Client</th><th></th>", saleRows || emptyRow(6, "Aucune vente."), "", 560) + "</section>" +
       '<section class="panel"><h2>Envois, versements et dépenses</h2><h3>Stock envoyé</h3>' + tableWrap("<th>Jour</th><th>Agent</th><th>Sachets</th><th>Achat/sachet</th><th>Transport</th><th>Arrivée</th><th></th>", cShip || emptyRow(7, "Aucun envoi."), "", 620) +
@@ -727,6 +770,16 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
       if (S.pwMsg) { render(true); return; }
       S.busy = true; render(true);
       api.changePassword(S.profile.email, po, pn).then(function () { S.busy = false; S.pwOpen = false; S.pwMsg = ""; render(true); toast("Mot de passe modifié."); }, function (err) { S.busy = false; S.pwMsg = errText(err); render(true); });
+      return;
+    }
+    if (kind === "agentexp" || kind === "ownerexp") {
+      var xa = num(v("amount")), xm = v("motif");
+      var xagent = kind === "agentexp" ? S.session.user.id : v("agent_id");
+      var xcountry = kind === "agentexp" ? (S.profile && S.profile.country) : v("country");
+      if (xa <= 0 || !xm) { toast("Indique le montant et le motif de la dépense.", true); return; }
+      if (!xagent || !xcountry) { toast("Agent ou pays introuvable.", true); return; }
+      S.action = null;
+      run(api.insert("expenses", { country: xcountry, agent_id: xagent, exp_date: v("date") || today(), label: xm, kind: "autre", amount: xa }), "Dépense enregistrée.");
       return;
     }
     if (kind === "sale") {
