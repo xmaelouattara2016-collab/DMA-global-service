@@ -308,6 +308,7 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
     if (/at least 6|Password should/i.test(m)) return "Mot de passe : 6 caractères minimum.";
     if (/valid email|invalid format/i.test(m)) return "Adresse email non valide.";
     if (/rate limit/i.test(m)) return "Trop de tentatives. Réessaie dans quelques minutes.";
+    if (/row-level security/i.test(m)) return "Action refusée : tu n'as pas de stock disponible.";
     if (/Failed to fetch|NetworkError|network/i.test(m)) return "Pas de connexion internet.";
     return m;
   }
@@ -398,7 +399,8 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
     var dayMineRows = Object.keys(dayMine).sort().reverse().slice(0, 30).map(function (k) {
       return "<tr><td>" + dateFr(k) + "</td><td>" + fmt(dayMine[k].total) + '</td><td class="txt">' + esc(dayMine[k].motifs.join(" · ")) + "</td></tr>";
     }).join("");
-    var agentPanel = S.action === "other" ? '<section class="panel"><h2>' + ico("wallet") + 'Autre dépense</h2><div class="hint">Une dépense faite avec l\'argent de tes ventes, quand le propriétaire te le demande. Elle est retirée de ce que tu dois verser. Seul le propriétaire peut la retirer.</div><form data-form="agentexp" class="fields" novalidate>' +
+    var noStock = a.shipped <= 0, soldOut = !noStock && a.remaining <= 0;
+    var agentPanel = (S.action === "other" && !noStock) ? '<section class="panel"><h2>' + ico("wallet") + 'Autre dépense</h2><div class="hint">Une dépense faite avec l\'argent de tes ventes, quand le propriétaire te le demande. Elle est retirée de ce que tu dois verser. Seul le propriétaire peut la retirer.</div><form data-form="agentexp" class="fields" novalidate>' +
       '<div class="field"><label for="x-date">Date</label><input id="x-date" name="date" type="date" value="' + today() + '"></div>' +
       '<div class="field"><label for="x-amount">Montant dépensé (FCFA)</label><input id="x-amount" name="amount" type="number" inputmode="decimal" min="1" step="any" required></div>' +
       '<div class="field wide"><label for="x-motif">Motif de la dépense</label><input id="x-motif" name="motif" type="text" autocomplete="off" placeholder="Ex : transport, repas, emballage" required></div>' +
@@ -406,13 +408,13 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
     return '<main>' + header() +
       '<section class="panel result"><div class="bigline"><span class="eyebrow">Sachets restants</span><span class="big ' + (a.remaining < 0 ? "neg" : "") + '">' + fmt(a.remaining) + '</span><span class="muted small">' + fmt(a.shipped) + " reçus · " + fmt(a.sold) + " vendus</span></div>" +
       '<div class="pair">' + statTile("Total à me verser", money(a.revenue), "Somme de tes ventes") + statTile("Déjà versé", money(a.remitted)) + (a.spent > 0 ? statTile("Dépenses payées", money(a.spent), "Prises sur ta recette") : "") + statTile("Reste à verser", money(a.toRemit), "", a.toRemit > 0 ? "warn" : "pos") + "</div></section>" +
-      actionTiles(["other"]) + agentPanel +
-      '<section class="panel"><h2>Enregistrer une vente</h2><form data-form="sale" class="fields" novalidate>' +
+      (noStock ? '<section class="panel notice"><h2>Pas encore de stock</h2><div class="hint">Tu n\'as pas encore reçu de stock. Tant que le propriétaire ne t\'a pas envoyé de sachets, tu peux consulter le site mais tu ne peux rien enregistrer.</div></section>' : actionTiles(["other"]) + agentPanel) +
+      (noStock ? "" : soldOut ? '<section class="panel notice"><h2>Stock épuisé</h2><div class="hint">Tu as vendu tous tes sachets. Tu pourras enregistrer de nouvelles ventes quand le propriétaire t\'enverra du stock.</div></section>' : '<section class="panel"><h2>Enregistrer une vente</h2><form data-form="sale" class="fields" novalidate>' +
       '<div class="field"><label for="s-date">Date</label><input id="s-date" name="date" type="date" value="' + today() + '" required></div>' +
-      '<div class="field"><label for="s-qty">Sachets vendus</label><input id="s-qty" name="qty" type="number" inputmode="numeric" min="1" step="1" required></div>' +
+      '<div class="field"><label for="s-qty">Sachets vendus</label><input id="s-qty" name="qty" type="number" inputmode="numeric" min="1" max="' + Math.max(0, Math.floor(a.remaining)) + '" step="1" required></div>' +
       '<div class="field"><label for="s-amount">Montant à me verser (FCFA)</label><input id="s-amount" name="amount" type="number" inputmode="decimal" min="0" step="any" required></div>' +
       '<div class="field"><label for="s-place">Client et ville (facultatif)</label><input id="s-place" name="place" type="text" autocomplete="off"></div>' +
-      '<div class="field wide"><button class="primary" type="submit"' + (S.busy ? " disabled" : "") + ">Enregistrer la vente</button></div></form></section>" +
+      '<div class="field wide"><button class="primary" type="submit"' + (S.busy ? " disabled" : "") + ">Enregistrer la vente</button></div></form></section>") +
       '<section class="panel"><h2>Mes dernières ventes</h2><div class="hint">Une vente enregistrée ne peut être retirée que par le propriétaire. En cas d\'erreur, préviens-le.</div>' +
       tableWrap("<th>Jour</th><th>Sachets</th><th>Montant</th><th>Client</th>", rows || emptyRow(4, "Aucune vente pour le moment."), "", 400) + "</section>" +
       '<section class="panel"><h2>Mes autres dépenses par jour</h2><div class="hint">Dépenses payées avec ta recette, avec les motifs. Elles sont retirées de la somme à verser.</div>' + tableWrap("<th>Jour</th><th>Total du jour</th><th>Motifs</th>", dayMineRows || emptyRow(3, "Aucune dépense."), "", 420) + "</section>" +
@@ -785,6 +787,7 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
       var xcountry = kind === "agentexp" ? (S.profile && S.profile.country) : v("country");
       if (xa <= 0 || !xm) { toast("Indique le montant et le motif de la dépense.", true); return; }
       if (!xagent || !xcountry) { toast("Agent ou pays introuvable.", true); return; }
+      if (kind === "agentexp" && agg(S.data || { shipments: [], sales: [], remittances: [] }, [xagent]).shipped <= 0) { toast("Tu n'as pas encore reçu de stock.", true); return; }
       S.action = null;
       run(api.insert("expenses", { country: xcountry, agent_id: xagent, exp_date: v("date") || today(), label: xm, kind: "autre", amount: xa }), "Dépense enregistrée.");
       return;
@@ -792,6 +795,9 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
     if (kind === "sale") {
       var q = num(v("qty")), a = num(v("amount"));
       if (q < 1 || !isFinite(a) || v("amount") === "") { toast("Indique le nombre de sachets et le montant.", true); return; }
+      var mine = agg(S.data || { shipments: [], sales: [], remittances: [] }, [S.session.user.id]);
+      if (mine.shipped <= 0) { toast("Tu n'as pas encore reçu de stock.", true); return; }
+      if (q > mine.remaining) { toast("Tu n'as que " + fmt(mine.remaining) + " sachet(s) en stock.", true); return; }
       run(api.insert("sales", { agent_id: S.session.user.id, sale_date: v("date") || today(), qty: Math.round(q), amount: a, place: v("place") || null }), "Vente enregistrée.");
     } else if (kind === "shipment") {
       var sq = num(v("qty")), sc = num(v("unit_cost")), st = Math.max(0, num(v("transport"))), sa = Math.max(0, num(v("arrival_fees")));
