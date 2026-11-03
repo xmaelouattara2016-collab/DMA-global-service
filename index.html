@@ -488,8 +488,10 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
       return '<div class="agentcard"><div class="agname"><button type="button" class="link" data-act="tab" data-tab="' + esc(c) + '">' + esc(c) + "</button></div><div class=\"mini-grid\">" +
         mini("Envoyés", fmt(st.shipped)) + mini("Vendus", fmt(st.sold)) + mini("Restants", fmt(st.remaining)) + mini("Ventes", fmt(st.revenue)) + mini("Versé", fmt(st.remitted)) + mini("À recevoir", fmt(st.toRemit), st.toRemit > 0 ? "warn" : "") + mini("Dépenses", fmt(st.expenses)) + mini("Bénéfice", fmt(st.profit), cls(st.profit)) + "</div></div>";
     }).join("");
-    var per = A.present.map(function (c) { return lotView(countryStats(d, c).total, c); }).join("");
-    return lotView(T, "Tous pays") +
+    var allRows = [];
+    A.present.forEach(function (c) { countryStats(d, c).rows.forEach(function (r) { allRows.push(r); }); });
+    var per = A.present.map(function (c) { var st = countryStats(d, c); return agentsPanel(st.rows, "Agents · " + c, false) + lotView(st.total, c); }).join("");
+    return agentsPanel(allRows, "Agents · tous pays", true) + lotView(T, "Tous pays") +
       '<section class="panel"><h2>Par pays</h2><div class="hint">Montants en FCFA. Touche un pays pour ouvrir son onglet.</div>' +
       (cards ? '<div class="rows">' + cards + "</div>" : '<div class="muted small">Aucun agent validé pour le moment. Va dans l\'onglet Agents.</div>') + "</section>" +
       (per ? '<h2 class="sect">Détail de chaque pays</h2>' + per : "");
@@ -528,17 +530,22 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
       return '<button type="button" class="tile ' + it[2] + (S.action === k ? " on" : "") + '" data-act="action" data-kind="' + k + '" aria-pressed="' + (S.action === k) + '">' + ico(it[0]) + "<span>" + it[1] + "</span></button>";
     }).join("") + "</section>";
   }
+  function agentCard(r, withCountry) {
+    return '<div class="agentcard"><div class="agname">' + esc(r.agent.name || r.agent.email) + (withCountry ? ' <span class="muted small">· ' + esc(r.agent.country || "") + "</span>" : "") + '</div><div class="mini-grid">' +
+      mini("Envoyés", fmt(r.shipped)) + mini("Vendus", fmt(r.sold)) + mini("Restants", fmt(r.remaining), r.remaining < 0 ? "neg" : "") +
+      mini("Ventes (recette)", fmt(r.revenue)) + mini("Dépenses payées", fmt(r.spent)) + mini("Recette nette", fmt(r.revenue - r.spent)) +
+      mini("Versé", fmt(r.remitted)) + mini("À recevoir", fmt(r.toRemit), r.toRemit > 0 ? "warn" : "") + "</div></div>";
+  }
+  function agentsPanel(rows, title, withCountry) {
+    var cards = rows.map(function (r) { return agentCard(r, withCountry); }).join("");
+    return '<section class="panel"><h2>' + esc(title) + "</h2>" + (cards ? '<div class="rows">' + cards + "</div>" : '<div class="muted small">Aucun agent.</div>') + "</section>";
+  }
   function ownerCountry(d, country) {
     var st = countryStats(d, country), t = st.total, agents = st.agents;
     var nameOf = {}; d.profiles.forEach(function (p) { nameOf[p.id] = p.name || p.email; });
     var ids = {}; agents.forEach(function (a) { ids[a.id] = 1; });
 
-    var agentCards = st.rows.map(function (r) {
-      return '<div class="agentcard"><div class="agname">' + esc(r.agent.name || r.agent.email) + '</div><div class="mini-grid">' +
-        mini("Envoyés", fmt(r.shipped)) + mini("Vendus", fmt(r.sold)) + mini("Restants", fmt(r.remaining), r.remaining < 0 ? "neg" : "") +
-        mini("Ventes (recette)", fmt(r.revenue)) + mini("Dépenses payées", fmt(r.spent)) + mini("Recette nette", fmt(r.revenue - r.spent)) +
-        mini("Versé", fmt(r.remitted)) + mini("À recevoir", fmt(r.toRemit), r.toRemit > 0 ? "warn" : "") + "</div></div>";
-    }).join("");
+    var agentCards = st.rows.map(function (r) { return agentCard(r, false); }).join("");
 
     var cSales = d.sales.filter(function (s) { return ids[s.agent_id]; });
     var byDay = {};
