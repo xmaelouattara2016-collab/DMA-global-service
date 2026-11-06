@@ -144,6 +144,14 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 .toast.bad { background: var(--bad); color: #fff; }
 @media (prefers-reduced-motion: reduce) { .toast { transition: none; } }
+.daygroup{margin-top:12px}
+.chart { width: 100%; height: auto; display: block; margin: 8px 0 12px; }
+.yearnav { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+.yearnav .ghost { padding: 2px 12px; font-size: 18px; line-height: 1.2; }
+.lg { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.lg .sw { width: 12px; height: 12px; border-radius: 3px; flex: none; }
+.lg b { margin-left: auto; white-space: nowrap; }
+.legend.lgcol { grid-template-columns: 1fr; gap: 8px; }
 </style>
 </head>
 <body>
@@ -415,6 +423,7 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
       '<div class="field"><label for="s-amount">Montant à me verser (FCFA)</label><input id="s-amount" name="amount" type="number" inputmode="decimal" min="0" step="any" required></div>' +
       '<div class="field"><label for="s-place">Client et ville (facultatif)</label><input id="s-place" name="place" type="text" autocomplete="off"></div>' +
       '<div class="field wide"><button class="primary" type="submit"' + (S.busy ? " disabled" : "") + ">Enregistrer la vente</button></div></form></section>") +
+      salesChart(d, [{ id: me, name: "Mes ventes" }], "Évolution de mes ventes") +
       '<section class="panel"><h2>Mes dernières ventes</h2><div class="hint">Une vente enregistrée ne peut être retirée que par le propriétaire. En cas d\'erreur, préviens-le.</div>' +
       tableWrap("<th>Jour</th><th>Sachets</th><th>Montant</th><th>Client</th>", rows || emptyRow(4, "Aucune vente pour le moment."), "", 400) + "</section>" +
       '<section class="panel"><h2>Mes autres dépenses par jour</h2><div class="hint">Dépenses payées avec ta recette, avec les motifs. Elles sont retirées de la somme à verser.</div>' + tableWrap("<th>Jour</th><th>Total du jour</th><th>Motifs</th>", dayMineRows || emptyRow(3, "Aucune dépense."), "", 420) + "</section>" +
@@ -483,6 +492,51 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
       '<div class="led sub topline"><span>Total des dépenses</span><b>' + money(out) + "</b></div></section>";
   }
 
+
+  /* ----- courbe des ventes par mois ----- */
+  var MONTHS = ["J", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D"];
+  var MONTHS_LONG = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
+  function salesChart(d, agents, title) {
+    var year = S.year || new Date().getFullYear();
+    var series = agents.slice(0, 12).map(function (a, i) {
+      var m = []; for (var k = 0; k < 12; k++) m.push(0);
+      d.sales.forEach(function (s) {
+        if (s.agent_id !== a.id || !s.sale_date || s.sale_date.slice(0, 4) !== String(year)) return;
+        m[parseInt(s.sale_date.slice(5, 7), 10) - 1] += num(s.amount);
+      });
+      var tot = m.reduce(function (x, y) { return x + y; }, 0);
+      return { name: a.name || a.email || "Agent", m: m, tot: tot, c: "var(--c" + (i % 4 + 1) + ")", dash: i >= 4 ? "5 3" : "" };
+    });
+    var sum = []; for (var k = 0; k < 12; k++) sum.push(series.reduce(function (x, s) { return x + s.m[k]; }, 0));
+    var grand = sum.reduce(function (x, y) { return x + y; }, 0);
+    var multi = series.length > 1;
+    var all = multi ? sum.concat.apply(sum, series.map(function (s) { return s.m; })) : sum;
+    var mx = Math.max.apply(null, all.concat([1]));
+    var step = Math.pow(10, Math.floor(Math.log(mx) / Math.LN10)); var top = Math.ceil(mx / step) * step; if (top / step < 2) top = step * 2;
+    var W = 340, H = 190, L = 44, R = 10, T = 12, B = 26, pw = W - L - R, ph = H - T - B;
+    function X(i) { return L + pw * i / 11; }
+    function Y(v) { return T + ph - ph * v / top; }
+    function short(v) { return v >= 1000000 ? String(Math.round(v / 100000) / 10).replace(".", ",") + " M" : v >= 1000 ? Math.round(v / 1000) + " k" : String(Math.round(v)); }
+    var g = "";
+    for (var i = 0; i <= 4; i++) { var v = top * i / 4; g += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + Y(v) + '" y2="' + Y(v) + '" stroke="var(--line)" stroke-width="1"/><text x="' + (L - 6) + '" y="' + (Y(v) + 4) + '" text-anchor="end" font-size="10" fill="var(--muted)">' + short(v) + "</text>"; }
+    for (var j = 0; j < 12; j++) g += '<text x="' + X(j) + '" y="' + (H - 8) + '" text-anchor="middle" font-size="10" fill="var(--muted)">' + MONTHS[j] + "</text>";
+    function path(m, color, w, dash) {
+      var pts = m.map(function (v, i) { return X(i).toFixed(1) + "," + Y(v).toFixed(1); }).join(" ");
+      return '<polyline points="' + pts + '" fill="none" stroke="' + color + '" stroke-width="' + w + '" stroke-linejoin="round" stroke-linecap="round"' + (dash ? ' stroke-dasharray="' + dash + '"' : "") + "/>" +
+        m.map(function (v, i) { return '<circle cx="' + X(i).toFixed(1) + '" cy="' + Y(v).toFixed(1) + '" r="' + (w > 2 ? 3 : 2.2) + '" fill="' + color + '"/>'; }).join("");
+    }
+    var lines = "";
+    if (multi) { series.forEach(function (s) { lines += path(s.m, s.c, 2, s.dash); }); lines += path(sum, "var(--ink)", 3, ""); }
+    else lines += path(sum, series.length ? series[0].c : "var(--c1)", 3, "");
+    var best = 0; sum.forEach(function (v, i) { if (v > sum[best]) best = i; });
+    var legend = (multi ? '<div class="legend lgcol">' + series.map(function (s) {
+      return '<div class="lg"><span class="sw" style="background:' + s.c + '"></span><span>' + esc(s.name) + "</span><b>" + money(s.tot) + "</b></div>";
+    }).join("") + '<div class="lg"><span class="sw" style="background:var(--ink)"></span><span>Total</span><b>' + money(grand) + "</b></div></div>" : "");
+    var yrs = ' <button type="button" class="ghost" data-act="year" data-dir="-1" aria-label="Année précédente">‹</button> <b>' + year + '</b> <button type="button" class="ghost" data-act="year" data-dir="1" aria-label="Année suivante">›</button>';
+    return '<section class="panel"><h2>' + esc(title) + '</h2><div class="yearnav">' + yrs + '</div><div class="hint">Ventes de chaque mois, en FCFA. Total ' + year + " : <b>" + money(grand) + "</b>" + (grand > 0 ? " · meilleur mois : " + MONTHS_LONG[best] + " (" + money(sum[best]) + ")" : "") + "</div>" +
+      '<svg class="chart" viewBox="0 0 ' + W + " " + H + '" role="img" aria-label="Courbe des ventes par mois en ' + year + '">' + g + lines + "</svg>" + legend + "</section>";
+  }
+
   function ownerTotal(d) {
     var A = allStats(d), T = A.total;
     var cards = A.present.map(function (c) {
@@ -492,8 +546,8 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
     }).join("");
     var allRows = [];
     A.present.forEach(function (c) { countryStats(d, c).rows.forEach(function (r) { allRows.push(r); }); });
-    var per = A.present.map(function (c) { var st = countryStats(d, c); return agentsPanel(st.rows, "Agents · " + c, false) + lotView(st.total, c); }).join("");
-    return agentsPanel(allRows, "Agents · tous pays", true) + lotView(T, "Tous pays") +
+    var per = A.present.map(function (c) { var st = countryStats(d, c); return agentsPanel(st.rows, "Agents · " + c, false) + lotView(st.total, c) + salesChart(d, st.agents, "Évolution des ventes · " + c); }).join("");
+    return agentsPanel(allRows, "Agents · tous pays", true) + lotView(T, "Tous pays") + salesChart(d, allRows.map(function (r) { return r.agent; }), "Évolution des ventes · tous pays") +
       '<section class="panel"><h2>Par pays</h2><div class="hint">Montants en FCFA. Touche un pays pour ouvrir son onglet.</div>' +
       (cards ? '<div class="rows">' + cards + "</div>" : '<div class="muted small">Aucun agent validé pour le moment. Va dans l\'onglet Agents.</div>') + "</section>" +
       (per ? '<h2 class="sect">Détail de chaque pays</h2>' + per : "");
@@ -512,10 +566,22 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
         mini("Sachets", fmt(q)) + mini("Prix / sachet", fmt(u)) + mini("Achat", fmt(q * u)) + mini("Transport", fmt(tr)) + mini("Frais d\'arrivée", fmt(ar)) + mini("Coût total", fmt(tot)) + mini("Coût / sachet", fmt(q > 0 ? tot / q : 0)) + "</div>" + '<div>' + delBtn("shipments", s.id, "cet envoi") + "</div></div>";
     }).join("");
     html += '<section class="panel"><h2>Détail des achats et envois</h2><div class="hint">Chaque envoi de stock, avec le prix chez le fournisseur, le transport et les frais d\'arrivée. Les agents ne voient pas ces coûts.</div>' + (ships ? '<div class="rows">' + ships + "</div>" : '<div class="muted small">Aucun envoi enregistré.</div>') + "</section>";
-    var exps = d.expenses.slice(0, 80).map(function (e) {
-      return '<div class="row"><div class="rowtxt"><strong>' + esc(e.label) + '</strong><div class="hint">' + dateFr(e.exp_date) + " · " + esc(e.country) + " · " + (e.agent_id ? "Payée par " + esc(nameOf[e.agent_id] || "l\'agent") + " (recette)" : e.kind === "autre" ? "Autre dépense" : "Campagne") + '</div></div><b class="stat">' + money(e.amount) + "</b>" + delBtn("expenses", e.id, "cette dépense") + "</div>";
+    var isDaily = function (e) { return e.kind === "autre" || !!e.agent_id; };
+    var camp = d.expenses.filter(function (e) { return !isDaily(e); }).slice(0, 80).map(function (e) {
+      return '<div class="row"><div class="rowtxt"><strong>' + esc(e.label) + '</strong><div class="hint">' + dateFr(e.exp_date) + " · " + esc(e.country) + '</div></div><b class="stat">' + money(e.amount) + "</b>" + delBtn("expenses", e.id, "cette dépense") + "</div>";
     }).join("");
-    html += '<section class="panel"><h2>Détail des dépenses</h2>' + (exps ? '<div class="rows">' + exps + "</div>" : '<div class="muted small">Aucune dépense enregistrée.</div>') + "</section>";
+    html += '<section class="panel"><h2>' + ico("social") + 'Dépenses de campagnes</h2>' + (camp ? '<div class="rows">' + camp + "</div>" : '<div class="muted small">Aucune dépense de campagne.</div>') + "</section>";
+    var days = {};
+    d.expenses.filter(isDaily).forEach(function (e) { (days[e.exp_date] = days[e.exp_date] || []).push(e); });
+    var dayHtml = Object.keys(days).sort().reverse().slice(0, 30).map(function (k) {
+      var tot = 0;
+      var lines = days[k].map(function (e) {
+        tot += num(e.amount);
+        return '<div class="row"><div class="rowtxt"><strong>' + esc(e.label) + '</strong><div class="hint">' + esc(e.country) + (e.agent_id ? " · " + esc(nameOf[e.agent_id] || "l\'agent") : "") + '</div></div><b class="stat">' + money(e.amount) + "</b>" + delBtn("expenses", e.id, "cette dépense") + "</div>";
+      }).join("");
+      return '<div class="daygroup"><div class="hint"><strong>' + dateFr(k) + "</strong> · Total du jour : " + money(tot) + '</div><div class="rows">' + lines + "</div></div>";
+    }).join("");
+    html += '<section class="panel"><h2>' + ico("wallet") + 'Dépenses du jour</h2><div class="hint">Dépenses faites avec l\'argent des ventes, jour par jour, avec le motif. Elles ne sont pas des dépenses de campagne.</div>' + (dayHtml || '<div class="muted small">Aucune dépense du jour.</div>') + "</section>";
     return html;
   }
 
@@ -612,7 +678,7 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
     var panel = S.action === "shipment" ? (agents.length ? shipPanel : noAgent) : S.action === "remittance" ? (agents.length ? remPanel : noAgent) : S.action === "expense" ? expPanel : S.action === "other" ? (agents.length ? otherPanel : noAgent) : "";
 
     return '<section class="panel"><h2>Agents · ' + esc(country) + "</h2>" + (agentCards ? '<div class="rows">' + agentCards + "</div>" : '<div class="muted small">Aucun agent.</div>') + "</section>" +
-      lotView(t, country) +
+      lotView(t, country) + salesChart(d, agents, "Évolution des ventes · " + country) +
       actionTiles(["shipment", "remittance", "expense", "other"]) + panel +
       '<section class="panel"><h2>Autres dépenses par jour</h2><div class="hint">Dépenses payées par les agents avec leur recette, jour par jour, avec les motifs.</div>' + tableWrap("<th>Jour</th><th>Agent</th><th>Total</th><th>Motifs</th>", dayExpRows || emptyRow(4, "Aucune dépense."), "", 520) + "</section>" +
       '<section class="panel"><h2>Ventes par jour</h2>' + tableWrap("<th>Jour</th><th>Sachets</th><th>Montant (FCFA)</th>", dayRows || emptyRow(3, "Aucune vente."), "", 0) + "</section>" +
@@ -718,6 +784,7 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
     else if (act === "tab") { S.tab = b.getAttribute("data-tab"); S.action = null; lsSet(TAB_KEY, S.tab); render(true); window.scrollTo(0, 0); }
     else if (act === "refresh") { refresh(true).then(function () { toast("Mis à jour."); }); }
     else if (act === "logout") { api.signOut().then(function () { liveOn = false; startSession(null); }); }
+    else if (act === "year") { S.year = (S.year || new Date().getFullYear()) + parseInt(b.getAttribute("data-dir"), 10); render(true); }
     else if (act === "theme") { var cur = themeMode(); lsSet(THEME_KEY, cur === "auto" ? "light" : cur === "light" ? "dark" : "auto"); applyTheme(); render(true); }
     else if (act === "pw") { S.pwOpen = !S.pwOpen; S.pwMsg = ""; S.nameOpen = false; render(true); if (S.pwOpen) { var pi = $app.querySelector("#p-old"); if (pi) { pi.scrollIntoView({ block: "center" }); pi.focus(); } } }
     else if (act === "name") { S.nameOpen = !S.nameOpen; S.nameMsg = ""; S.pwOpen = false; render(true); if (S.nameOpen) { var ni = $app.querySelector("#n-name"); if (ni) { ni.scrollIntoView({ block: "center" }); ni.focus(); ni.select(); } } }
