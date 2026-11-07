@@ -152,6 +152,14 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
 .lg .sw { width: 12px; height: 12px; border-radius: 3px; flex: none; }
 .lg b { margin-left: auto; white-space: nowrap; }
 .legend.lgcol { grid-template-columns: 1fr; gap: 8px; }
+.yearnav { flex-wrap: wrap; }
+.seg { display: inline-flex; gap: 0; }
+.pnav { display: flex; align-items: center; gap: 10px; }
+.pnav b { min-width: 120px; text-align: center; }
+.seg .ghost { border-radius: 0; padding: 6px 12px; font-size: 14px; }
+.seg .ghost:first-child { border-radius: 10px 0 0 10px; }
+.seg .ghost:last-child { border-radius: 0 10px 10px 0; margin-left: -1px; }
+.seg .ghost.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 </style>
 </head>
 <body>
@@ -497,29 +505,47 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
   var MONTHS = ["J", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D"];
   var MONTHS_LONG = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
   function salesChart(d, agents, title) {
-    var year = S.year || new Date().getFullYear();
+    var now = new Date(), year = S.year || now.getFullYear(), mon = S.month == null ? now.getMonth() : S.month;
+    var weekMode = S.period === "week", N, labels = [], keyOf;
+    if (weekMode) {
+      var dim = new Date(year, mon + 1, 0).getDate(), seen = {}, order = [];
+      for (var dd = 1; dd <= dim; dd++) {
+        var dt = new Date(year, mon, dd), off = (dt.getDay() + 6) % 7, st = new Date(year, mon, dd - off), kk = st.getFullYear() + "-" + st.getMonth() + "-" + st.getDate();
+        if (seen[kk] == null) { seen[kk] = order.length; order.push(st); }
+      }
+      N = order.length; labels = order.map(function (st) { return st.getDate() + "/" + (st.getMonth() + 1); });
+      keyOf = function (sd) {
+        if (!sd || sd.slice(0, 4) !== String(year) || parseInt(sd.slice(5, 7), 10) - 1 !== mon) return -1;
+        var dt = new Date(year, mon, parseInt(sd.slice(8, 10), 10)), off = (dt.getDay() + 6) % 7, st = new Date(year, mon, dt.getDate() - off);
+        var r = seen[st.getFullYear() + "-" + st.getMonth() + "-" + st.getDate()]; return r == null ? -1 : r;
+      };
+    } else {
+      N = 12; labels = MONTHS;
+      keyOf = function (sd) { return sd && sd.slice(0, 4) === String(year) ? parseInt(sd.slice(5, 7), 10) - 1 : -1; };
+    }
+    var periodName = weekMode ? MONTHS_LONG[mon] + " " + year : String(year);
     var series = agents.slice(0, 12).map(function (a, i) {
-      var m = []; for (var k = 0; k < 12; k++) m.push(0);
+      var m = []; for (var k = 0; k < N; k++) m.push(0);
       d.sales.forEach(function (s) {
-        if (s.agent_id !== a.id || !s.sale_date || s.sale_date.slice(0, 4) !== String(year)) return;
-        m[parseInt(s.sale_date.slice(5, 7), 10) - 1] += num(s.amount);
+        if (s.agent_id !== a.id) return;
+        var ix = keyOf(s.sale_date); if (ix >= 0 && ix < N) m[ix] += num(s.amount);
       });
       var tot = m.reduce(function (x, y) { return x + y; }, 0);
       return { name: a.name || a.email || "Agent", m: m, tot: tot, c: "var(--c" + (i % 4 + 1) + ")", dash: i >= 4 ? "5 3" : "" };
     });
-    var sum = []; for (var k = 0; k < 12; k++) sum.push(series.reduce(function (x, s) { return x + s.m[k]; }, 0));
+    var sum = []; for (var k = 0; k < N; k++) sum.push(series.reduce(function (x, s) { return x + s.m[k]; }, 0));
     var grand = sum.reduce(function (x, y) { return x + y; }, 0);
     var multi = series.length > 1;
     var all = multi ? sum.concat.apply(sum, series.map(function (s) { return s.m; })) : sum;
     var mx = Math.max.apply(null, all.concat([1]));
     var step = Math.pow(10, Math.floor(Math.log(mx) / Math.LN10)); var top = Math.ceil(mx / step) * step; if (top / step < 2) top = step * 2;
-    var W = 340, H = 190, L = 44, R = 10, T = 12, B = 26, pw = W - L - R, ph = H - T - B;
-    function X(i) { return L + pw * i / 11; }
+    var W = 340, H = 190, L = 44, R = 22, T = 12, B = 26, pw = W - L - R, ph = H - T - B;
+    function X(i) { return N > 1 ? L + pw * i / (N - 1) : L + pw / 2; }
     function Y(v) { return T + ph - ph * v / top; }
     function short(v) { return v >= 1000000 ? String(Math.round(v / 100000) / 10).replace(".", ",") + " M" : v >= 1000 ? Math.round(v / 1000) + " k" : String(Math.round(v)); }
     var g = "";
     for (var i = 0; i <= 4; i++) { var v = top * i / 4; g += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + Y(v) + '" y2="' + Y(v) + '" stroke="var(--line)" stroke-width="1"/><text x="' + (L - 6) + '" y="' + (Y(v) + 4) + '" text-anchor="end" font-size="10" fill="var(--muted)">' + short(v) + "</text>"; }
-    for (var j = 0; j < 12; j++) g += '<text x="' + X(j) + '" y="' + (H - 8) + '" text-anchor="middle" font-size="10" fill="var(--muted)">' + MONTHS[j] + "</text>";
+    for (var j = 0; j < N; j++) g += '<text x="' + X(j) + '" y="' + (H - 8) + '" text-anchor="middle" font-size="10" fill="var(--muted)">' + labels[j] + "</text>";
     function path(m, color, w, dash) {
       var pts = m.map(function (v, i) { return X(i).toFixed(1) + "," + Y(v).toFixed(1); }).join(" ");
       return '<polyline points="' + pts + '" fill="none" stroke="' + color + '" stroke-width="' + w + '" stroke-linejoin="round" stroke-linecap="round"' + (dash ? ' stroke-dasharray="' + dash + '"' : "") + "/>" +
@@ -532,9 +558,9 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
     var legend = (multi ? '<div class="legend lgcol">' + series.map(function (s) {
       return '<div class="lg"><span class="sw" style="background:' + s.c + '"></span><span>' + esc(s.name) + "</span><b>" + money(s.tot) + "</b></div>";
     }).join("") + '<div class="lg"><span class="sw" style="background:var(--ink)"></span><span>Total</span><b>' + money(grand) + "</b></div></div>" : "");
-    var yrs = ' <button type="button" class="ghost" data-act="year" data-dir="-1" aria-label="Année précédente">‹</button> <b>' + year + '</b> <button type="button" class="ghost" data-act="year" data-dir="1" aria-label="Année suivante">›</button>';
-    return '<section class="panel"><h2>' + esc(title) + '</h2><div class="yearnav">' + yrs + '</div><div class="hint">Ventes de chaque mois, en FCFA. Total ' + year + " : <b>" + money(grand) + "</b>" + (grand > 0 ? " · meilleur mois : " + MONTHS_LONG[best] + " (" + money(sum[best]) + ")" : "") + "</div>" +
-      '<svg class="chart" viewBox="0 0 ' + W + " " + H + '" role="img" aria-label="Courbe des ventes par mois en ' + year + '">' + g + lines + "</svg>" + legend + "</section>";
+    var yrs = '<div class="seg" role="group" aria-label="Période"><button type="button" class="ghost' + (weekMode ? "" : " on") + '" data-act="period" data-p="month">Par mois</button><button type="button" class="ghost' + (weekMode ? " on" : "") + '" data-act="period" data-p="week">Par semaine</button></div><div class="pnav"><button type="button" class="ghost" data-act="year" data-dir="-1" aria-label="Précédent">‹</button> <b>' + (weekMode ? MONTHS_LONG[mon] + " " + year : year) + '</b> <button type="button" class="ghost" data-act="year" data-dir="1" aria-label="Suivant">›</button></div>';
+    return '<section class="panel"><h2>' + esc(title) + '</h2><div class="yearnav">' + yrs + '</div><div class="hint">Ventes de chaque ' + (weekMode ? "semaine (du lundi), en FCFA. Total " : "mois, en FCFA. Total ") + periodName + " : <b>" + money(grand) + "</b>" + (grand > 0 ? (weekMode ? " · meilleure semaine : du " + labels[best] : " · meilleur mois : " + MONTHS_LONG[best]) + " (" + money(sum[best]) + ")" : "") + "</div>" +
+      '<svg class="chart" viewBox="0 0 ' + W + " " + H + '" role="img" aria-label="Courbe des ventes, ' + periodName + '">' + g + lines + "</svg>" + legend + "</section>";
   }
 
   function ownerTotal(d) {
@@ -784,7 +810,13 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
     else if (act === "tab") { S.tab = b.getAttribute("data-tab"); S.action = null; lsSet(TAB_KEY, S.tab); render(true); window.scrollTo(0, 0); }
     else if (act === "refresh") { refresh(true).then(function () { toast("Mis à jour."); }); }
     else if (act === "logout") { api.signOut().then(function () { liveOn = false; startSession(null); }); }
-    else if (act === "year") { S.year = (S.year || new Date().getFullYear()) + parseInt(b.getAttribute("data-dir"), 10); render(true); }
+    else if (act === "year") {
+      var dr = parseInt(b.getAttribute("data-dir"), 10), nw = new Date();
+      if (S.period === "week") { var mm = (S.month == null ? nw.getMonth() : S.month) + dr, yy = S.year || nw.getFullYear(); if (mm < 0) { mm = 11; yy--; } else if (mm > 11) { mm = 0; yy++; } S.month = mm; S.year = yy; }
+      else S.year = (S.year || nw.getFullYear()) + dr;
+      render(true);
+    }
+    else if (act === "period") { S.period = b.getAttribute("data-p") === "week" ? "week" : "month"; render(true); }
     else if (act === "theme") { var cur = themeMode(); lsSet(THEME_KEY, cur === "auto" ? "light" : cur === "light" ? "dark" : "auto"); applyTheme(); render(true); }
     else if (act === "pw") { S.pwOpen = !S.pwOpen; S.pwMsg = ""; S.nameOpen = false; render(true); if (S.pwOpen) { var pi = $app.querySelector("#p-old"); if (pi) { pi.scrollIntoView({ block: "center" }); pi.focus(); } } }
     else if (act === "name") { S.nameOpen = !S.nameOpen; S.nameMsg = ""; S.pwOpen = false; render(true); if (S.nameOpen) { var ni = $app.querySelector("#n-name"); if (ni) { ni.scrollIntoView({ block: "center" }); ni.focus(); ni.select(); } } }
