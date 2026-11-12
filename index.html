@@ -437,6 +437,20 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
     var d = S.data || { shipments: [], sales: [], remittances: [] };
     var me = S.profile.id;
     var a = agg(d, [me]);
+    var hasProd = prodList(d).length > 0;
+    var atabs = hasProd ? '<nav class="tabs" role="tablist" aria-label="Sections">' + [["home", "Mes ventes"], ["produits", "Produits"]].map(function (t) {
+      return '<button type="button" role="tab" aria-selected="' + (S.atab === t[0] || (!S.atab && t[0] === "home")) + '" class="tab' + (S.atab === t[0] || (!S.atab && t[0] === "home") ? " on" : "") + '" data-act="atab" data-tab="' + t[0] + '">' + t[1] + "</button>";
+    }).join("") + "</nav>" : "";
+    if (hasProd && S.atab === "produits") {
+      var bp = a.byProduct || {}, pl = prodList(d);
+      var pcards = pl.map(function (p, i) {
+        var o = bp[p.id] || { shipped: 0, sold: 0, revenue: 0 };
+        return '<section class="panel"><h2><span class="sw" style="background:' + PCOL[i % 4] + '"></span> ' + esc(p.name) + "</h2>" +
+          (o.shipped > 0 ? '<div class="mini-grid">' + mini("Reçus", fmt(o.shipped)) + mini("Vendus", fmt(o.sold)) + mini("Restants", fmt(o.shipped - o.sold), o.shipped - o.sold <= 0 ? "neg" : "") + mini("Mes ventes (FCFA)", fmt(o.revenue)) + mini("Prix moyen (FCFA)", o.sold > 0 ? fmt(o.revenue / o.sold) : "—") + "</div>"
+            : '<div class="muted small">Produit à vendre. Tu n\'en as pas encore reçu : le propriétaire doit t\'en envoyer avant que tu puisses le vendre.</div>') + "</section>";
+      }).join("");
+      return "<main>" + header() + atabs + '<section class="panel"><h2>Produits à vendre</h2><div class="hint">Tous les produits de l\'entreprise, avec ton stock et tes ventes pour chacun.</div></section>' + pcards + footer() + "</main>";
+    }
     a.avgCost = 0;
     var recent = d.sales.slice(0, 40);
     var rows = recent.map(function (s) {
@@ -464,7 +478,7 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
       '<div class="field"><label for="x-amount">Montant dépensé (FCFA)</label><input id="x-amount" name="amount" type="number" inputmode="decimal" min="1" step="any" required></div>' +
       '<div class="field wide"><label for="x-motif">Motif de la dépense</label><input id="x-motif" name="motif" type="text" autocomplete="off" placeholder="Ex : transport, repas, emballage" required></div>' +
       '<div class="field wide"><button class="primary" type="submit"' + (S.busy ? " disabled" : "") + ">Enregistrer la dépense</button></div></form></section>" : "";
-    return '<main>' + header() +
+    return '<main>' + header() + atabs +
       '<section class="panel result"><div class="bigline"><span class="eyebrow">Stock restant</span><span class="big ' + (a.remaining < 0 ? "neg" : "") + '">' + fmt(a.remaining) + '</span><span class="muted small">' + fmt(a.shipped) + " reçus · " + fmt(a.sold) + " vendus</span></div>" +
       '<div class="pair">' + statTile("Total à me verser", money(a.revenue), "Somme de tes ventes") + statTile("Déjà versé", money(a.remitted)) + (a.spent > 0 ? statTile("Dépenses payées", money(a.spent), "Prises sur ta recette") : "") + statTile("Reste à verser", money(a.toRemit), "", a.toRemit > 0 ? "warn" : "pos") + "</div></section>" +
       (noStock ? '<section class="panel notice"><h2>Pas encore de stock</h2><div class="hint">Tu n\'as pas encore reçu de stock. Tant que le propriétaire ne t\'a pas envoyé de stock, tu peux consulter le site mais tu ne peux rien enregistrer.</div></section>' : actionTiles(["other"]) + agentPanel) +
@@ -489,11 +503,11 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
       return d.profiles.some(function (p) { return p.role === "agent" && p.country === c; }) || d.expenses.some(function (e) { return e.country === c; });
     });
     var pending = d.profiles.filter(function (p) { return p.role === "pending"; }).length;
-    return { list: ["total"].concat(present, ["details", "agents"]), pending: pending };
+    return { list: ["total"].concat(present, ["produits", "details", "agents"]), pending: pending };
   }
   function tabBar(t) {
     return '<nav class="tabs" role="tablist" aria-label="Pays">' + t.list.map(function (k) {
-      var label = k === "total" ? "Total" : k === "agents" ? "Agents" : k === "details" ? "Détails" : k;
+      var label = k === "total" ? "Total" : k === "agents" ? "Agents" : k === "details" ? "Détails" : k === "produits" ? "Produits" : k;
       var badge = k === "agents" && t.pending ? ' <span class="badge">' + t.pending + "</span>" : "";
       return '<button type="button" role="tab" aria-selected="' + (S.tab === k) + '" class="tab' + (S.tab === k ? " on" : "") + '" data-act="tab" data-tab="' + esc(k) + '">' + esc(label) + badge + "</button>";
     }).join("") + "</nav>";
@@ -762,6 +776,42 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
       "<h3>Dépenses de campagnes</h3>" + tableWrap("<th>Jour</th><th>Type</th><th>Description</th><th>Montant</th><th></th>", cExp || emptyRow(5, "Aucune dépense."), "", 500) + "</section>";
   }
 
+  function productManage(d) {
+    var plist = prodList(d);
+    var prodHtml = plist.length ? plist.map(function (p) {
+      return '<div class="row"><div class="renamebox"><input type="text" data-pname="' + esc(p.id) + '" value="' + esc(p.name) + '" aria-label="Nom du produit" autocomplete="off"><button type="button" class="mini2" data-act="renameprod" data-id="' + esc(p.id) + '">Renommer</button></div>' + delBtn("products", p.id, "ce produit") + "</div>";
+    }).join("") : '<div class="muted small">Les produits ne sont pas encore activés : lance la mise à jour 5 dans Supabase (fichier mise-a-jour-5.sql).</div>';
+    var prodPanel = '<section class="panel"><h2>Produits</h2><div class="hint">Les produits que tu vends. Quand tu envoies du stock, tu choisis le produit. Chaque agent voit et vend les produits qu\'il a reçus. Un produit déjà utilisé ne peut plus être supprimé.</div><div class="rows">' + prodHtml + "</div>" +
+      (plist.length ? '<form data-form="newproduct" class="fields" novalidate><div class="field wide"><label for="np-name">Nouveau produit</label><input id="np-name" name="name" type="text" autocomplete="off" placeholder="Ex : Savon, Huile, Crème"></div><div class="field wide"><button class="primary" type="submit"' + (S.busy ? " disabled" : "") + ">Ajouter le produit</button></div></form>" : "") + "</section>";
+    return prodPanel;
+  }
+  var PCOL = ["var(--c1)", "var(--c2)", "var(--c3)", "var(--c4)"];
+  function ownerProducts(d) {
+    var list = prodList(d), A = allStats(d), idsOf = {};
+    A.present.forEach(function (c) { idsOf[c] = agentsOf(d, c).map(function (a) { return a.id; }); });
+    var allIds = []; A.present.forEach(function (c) { allIds = allIds.concat(idsOf[c]); });
+    var tot = productStats(d, allIds), sum = 0;
+    list.forEach(function (p) { sum += (tot[p.id] || { revenue: 0 }).revenue; });
+    var segs = list.map(function (p, i) { var r = (tot[p.id] || { revenue: 0 }).revenue; return sum > 0 && r > 0 ? '<i style="width:' + (r / sum * 100) + "%;background:" + PCOL[i % 4] + '"></i>' : ""; }).join("");
+    var legend = list.map(function (p, i) {
+      var r = (tot[p.id] || { revenue: 0 }).revenue;
+      return '<div><div class="small"><span class="sw" style="background:' + PCOL[i % 4] + '"></span>' + esc(p.name) + ' <span class="muted">' + (sum > 0 ? Math.round(r / sum * 100) : 0) + NB + "%</span></div><div class=\"stat\">" + money(r) + "</div></div>";
+    }).join("");
+    var head = list.length ? '<section class="panel"><h2>Vue d\'ensemble des produits</h2><div class="hint">Part de chaque produit dans les ventes, tous pays.</div><div class="bar">' + segs + '</div><div class="legend">' + legend + "</div></section>" : "";
+    var cards = list.map(function (p, i) {
+      var o = tot[p.id] || { shipped: 0, sold: 0, revenue: 0, cogs: 0 }, m = o.revenue - o.cogs;
+      var rows = A.present.map(function (c) {
+        var q = productStats(d, idsOf[c])[p.id] || { shipped: 0, sold: 0, revenue: 0 };
+        return '<tr><td class="txt">' + esc(c) + "</td><td>" + fmt(q.shipped) + "</td><td>" + fmt(q.sold) + "</td><td>" + fmt(q.shipped - q.sold) + "</td><td>" + fmt(q.revenue) + "</td></tr>";
+      }).join("");
+      return '<section class="panel"><h2><span class="sw" style="background:' + PCOL[i % 4] + '"></span> ' + esc(p.name) + '</h2><div class="mini-grid">' +
+        mini("Envoyés", fmt(o.shipped)) + mini("Vendus", fmt(o.sold)) + mini("Restants", fmt(o.shipped - o.sold)) + mini("Ventes (FCFA)", fmt(o.revenue)) +
+        mini("Prix moyen (FCFA)", o.sold > 0 ? fmt(o.revenue / o.sold) : "—") + mini("Marge (FCFA)", fmt(m), m < 0 ? "neg" : "") + "</div>" +
+        '<h3>Par pays</h3>' + tableWrap("<th>Pays</th><th>Envoyés</th><th>Vendus</th><th>Restants</th><th>Ventes</th>", rows || emptyRow(5, "Aucun agent."), "", 380) + "</section>";
+    }).join("");
+    return head + cards + productManage(d);
+  }
+
   function ownerAgents(d) {
     var pend = d.profiles.filter(function (p) { return p.role === "pending"; });
     var act = d.profiles.filter(function (p) { return p.role === "agent"; });
@@ -781,13 +831,7 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
     var actHtml = act.length ? act.map(function (p) {
       return '<div class="row"><div class="rowtxt"><strong>' + esc(p.name || "") + '</strong><div class="hint">' + esc(p.email || "") + "</div></div>" + renameBox(p) + countrySel(p.id, p.country) + '<button type="button" class="mini2" data-act="setcountry" data-id="' + esc(p.id) + '">Changer le pays</button><button type="button" class="mini danger" data-act="deactivate" data-id="' + esc(p.id) + '">Désactiver</button></div>';
     }).join("") : '<div class="muted small">Aucun agent validé.</div>';
-    var plist = prodList(d);
-    var prodHtml = plist.length ? plist.map(function (p) {
-      return '<div class="row"><div class="renamebox"><input type="text" data-pname="' + esc(p.id) + '" value="' + esc(p.name) + '" aria-label="Nom du produit" autocomplete="off"><button type="button" class="mini2" data-act="renameprod" data-id="' + esc(p.id) + '">Renommer</button></div>' + delBtn("products", p.id, "ce produit") + "</div>";
-    }).join("") : '<div class="muted small">Les produits ne sont pas encore activés : lance la mise à jour 5 dans Supabase (fichier mise-a-jour-5.sql).</div>';
-    var prodPanel = '<section class="panel"><h2>Produits</h2><div class="hint">Les produits que tu vends. Quand tu envoies du stock, tu choisis le produit. Chaque agent voit et vend les produits qu\'il a reçus. Un produit déjà utilisé ne peut plus être supprimé.</div><div class="rows">' + prodHtml + "</div>" +
-      (plist.length ? '<form data-form="newproduct" class="fields" novalidate><div class="field wide"><label for="np-name">Nouveau produit</label><input id="np-name" name="name" type="text" autocomplete="off" placeholder="Ex : Savon, Huile, Crème"></div><div class="field wide"><button class="primary" type="submit"' + (S.busy ? " disabled" : "") + ">Ajouter le produit</button></div></form>" : "") + "</section>";
-    return prodPanel + '<section class="panel"><h2>Propriétaires</h2><div class="hint">Change le nom affiché d\'un propriétaire ici.</div><div class="rows">' + ownHtml + "</div></section>" +
+    return '<section class="panel"><h2>Propriétaires</h2><div class="hint">Change le nom affiché d\'un propriétaire ici.</div><div class="rows">' + ownHtml + "</div></section>" +
       '<section class="panel"><h2>Comptes en attente</h2><div class="hint">Envoie l\'adresse de l\'application à ton agent. Il crée son compte, puis il apparaît ici. Choisis son pays et valide.</div><div class="rows">' + pendHtml + "</div></section>" +
       '<section class="panel"><h2>Agents validés</h2><div class="rows">' + actHtml + "</div></section>";
   }
@@ -796,7 +840,7 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
     var d = S.data || { profiles: [], shipments: [], sales: [], remittances: [], expenses: [] };
     var t = ownerTabs(d);
     if (t.list.indexOf(S.tab) < 0) S.tab = "total";
-    var body = S.tab === "total" ? ownerTotal(d) : S.tab === "details" ? ownerDetails(d) : S.tab === "agents" ? ownerAgents(d) : ownerCountry(d, S.tab);
+    var body = S.tab === "total" ? ownerTotal(d) : S.tab === "details" ? ownerDetails(d) : S.tab === "agents" ? ownerAgents(d) : S.tab === "produits" ? ownerProducts(d) : ownerCountry(d, S.tab);
     return "<main>" + header() + tabBar(t) + body + footer() + "</main>";
   }
 
@@ -884,6 +928,7 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
       if (!pv) { toast("Écris un nom de produit.", true); return; }
       run(api.updateRow("products", id, { name: pv }), "Produit renommé.");
     }
+    else if (act === "atab") { S.atab = b.getAttribute("data-tab"); render(true); window.scrollTo(0, 0); }
     else if (act === "authmode") { S.authMode = S.authMode === "login" ? "signup" : "login"; S.authMsg = ""; S.authOk = ""; render(true); }
     else if (act === "del") {
       var key = b.getAttribute("data-table") + ":" + id;
