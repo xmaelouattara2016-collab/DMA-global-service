@@ -161,6 +161,8 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
 .seg .ghost:first-child { border-radius: 10px 0 0 10px; }
 .seg .ghost:last-child { border-radius: 0 10px 10px 0; margin-left: -1px; }
 .seg .ghost.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.subtabs { margin-top: -4px; }
+.subtabs .tab { font-size: 14px; }
 </style>
 </head>
 <body>
@@ -433,24 +435,59 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
   function emptyRow(cols, text) { return '<tr><td colspan="' + cols + '" class="emptycell">' + text + "</td></tr>"; }
 
   /* ----- vue agent ----- */
+  /* ---------- onglets par produit ---------- */
+  function curP(d) { var l = prodList(d); if (l.length < 2 || !S.ptab) return ""; for (var i = 0; i < l.length; i++) if (l[i].id === S.ptab) return S.ptab; return ""; }
+  function ptabBar(d) {
+    var l = prodList(d); if (l.length < 2) return "";
+    var cur = curP(d);
+    return '<nav class="tabs subtabs" role="tablist" aria-label="Produits">' + [{ id: "", name: "Tous les produits" }].concat(l).map(function (p) {
+      var on = cur === p.id;
+      return '<button type="button" role="tab" aria-selected="' + on + '" class="tab' + (on ? " on" : "") + '" data-act="ptab" data-p="' + esc(p.id) + '">' + esc(p.name) + "</button>";
+    }).join("") + "</nav>";
+  }
+  function filterProduct(d, pid) {
+    return { profiles: d.profiles || [], products: d.products || [], remittances: [], expenses: [],
+      shipments: d.shipments.filter(function (s) { return s.product_id === pid; }), sales: d.sales.filter(function (s) { return s.product_id === pid; }) };
+  }
+  function productLot(t, label) {
+    var avgBuy = t.shipped > 0 ? t.purchase / t.shipped : 0, avgPrice = t.sold > 0 ? t.revenue / t.sold : 0;
+    var pctSold = t.shipped > 0 ? Math.max(0, Math.min(100, t.sold / t.shipped * 100)) : 0;
+    return '<section class="panel"><h2>Le lot · ' + esc(label) + "</h2>" +
+      led("Quantité achetée et envoyée", fmt(t.shipped)) + led("Prix d\'achat moyen par article", money(avgBuy)) + led("Transport payé", money(t.transport)) + led("Autres frais d\'arrivée", money(t.arrival)) +
+      led("Coût du lot à l\'arrivée", money(t.cost), "", "sub") + led("Coût de revient par article", money(t.avgCost), "", "soft") + "</section>" +
+      '<section class="panel result"><div class="bigline"><span class="eyebrow">Marge · ' + esc(label) + '</span><span class="big ' + cls(t.profit) + '">' + money(t.profit) + '</span><span class="muted small">Ventes − coût des articles vendus, avant les dépenses de campagne et les autres dépenses</span></div>' +
+      '<div class="pair">' + statTile("Chiffre d\'affaires", money(t.revenue), fmt(t.sold) + " vendus") + statTile("Prix de vente moyen", t.sold > 0 ? money(avgPrice) : "—", "Par article vendu") +
+      statTile("Taux de marge", t.revenue > 0 ? pct(t.margin) : "—", "Sur le chiffre d\'affaires") + statTile("Valeur du stock restant", money(t.stockValue), fmt(t.remaining) + " restants, au coût") + "</div>" +
+      '<div class="rule"></div><div class="led plain"><span class="eyebrow">Stock vendu</span><b>' + fmt(t.sold) + " vendus sur " + fmt(t.shipped) + " · reste " + fmt(t.remaining) + '</b></div><div class="bar"><i style="width:' + pctSold + '%;background:var(--accent)"></i></div></section>';
+  }
+  function agentProductView(d, pid, me) {
+    var dv = filterProduct(d, pid), a = agg(dv, [me]), pname = prodName(d, pid), rem = a.shipped - a.sold;
+    var noStock = a.shipped <= 0, soldOut = !noStock && rem <= 0;
+    var rows = dv.sales.slice(0, 40).map(function (s) { return "<tr><td>" + dateFr(s.sale_date) + "</td><td>" + fmt(s.qty) + "</td><td>" + fmt(s.amount) + '</td><td class="txt">' + esc(s.place || "") + "</td></tr>"; }).join("");
+    var ship = dv.shipments.slice(0, 20).map(function (s) { return "<tr><td>" + dateFr(s.ship_date) + "</td><td>" + fmt(s.qty) + "</td></tr>"; }).join("");
+    var form = noStock ? '<section class="panel notice"><h2>Pas encore de stock</h2><div class="hint">Tu n\'as pas encore reçu de « ' + esc(pname) + ' ». Tant que le propriétaire ne t\'en a pas envoyé, tu ne peux pas le vendre.</div></section>'
+      : soldOut ? '<section class="panel notice"><h2>Stock épuisé</h2><div class="hint">Tu as vendu tout ton stock de « ' + esc(pname) + ' ». Tu pourras en vendre de nouveau quand le propriétaire t\'en enverra.</div></section>'
+      : '<section class="panel"><h2>Vendre · ' + esc(pname) + '</h2><form data-form="sale" class="fields" novalidate><input type="hidden" name="product_id" value="' + esc(pid) + '">' +
+        '<div class="field"><label for="s-date">Date</label><input id="s-date" name="date" type="date" value="' + today() + '" required></div>' +
+        '<div class="field"><label for="s-qty">Quantité vendue</label><input id="s-qty" name="qty" type="number" inputmode="numeric" min="1" max="' + Math.max(0, Math.floor(rem)) + '" step="1" required></div>' +
+        '<div class="field"><label for="s-amount">Montant à me verser (FCFA)</label><input id="s-amount" name="amount" type="number" inputmode="decimal" min="0" step="any" required></div>' +
+        '<div class="field"><label for="s-place">Client et ville (facultatif)</label><input id="s-place" name="place" type="text" autocomplete="off"></div>' +
+        '<div class="field wide"><button class="primary" type="submit"' + (S.busy ? " disabled" : "") + ">Enregistrer la vente</button></div></form></section>";
+    return "<main>" + header() + ptabBar(d) +
+      '<section class="panel result"><div class="bigline"><span class="eyebrow">Stock restant · ' + esc(pname) + '</span><span class="big ' + (rem < 0 ? "neg" : "") + '">' + fmt(rem) + '</span><span class="muted small">' + fmt(a.shipped) + " reçus · " + fmt(a.sold) + " vendus</span></div>" +
+      '<div class="pair">' + statTile("Mes ventes", money(a.revenue), fmt(a.sold) + " vendus") + statTile("Prix de vente moyen", a.sold > 0 ? money(a.revenue / a.sold) : "—", "Par article vendu") + "</div></section>" +
+      form + salesChart(dv, [{ id: me, name: "Mes ventes" }], "Évolution de mes ventes · " + pname) +
+      '<section class="panel"><h2>Mes dernières ventes · ' + esc(pname) + '</h2>' + tableWrap("<th>Jour</th><th>Qté</th><th>Montant</th><th>Client</th>", rows || emptyRow(4, "Aucune vente."), "", 400) + "</section>" +
+      '<section class="panel"><h2>Stock reçu · ' + esc(pname) + '</h2>' + tableWrap("<th>Jour</th><th>Reçus</th>", ship || emptyRow(2, "Aucun envoi."), "", 0) + "</section>" + footer() + "</main>";
+  }
+
   function renderAgent() {
     var d = S.data || { shipments: [], sales: [], remittances: [] };
     var me = S.profile.id;
     var a = agg(d, [me]);
-    var hasProd = prodList(d).length > 0;
-    var atabs = hasProd ? '<nav class="tabs" role="tablist" aria-label="Sections">' + [["home", "Mes ventes"], ["produits", "Produits"]].map(function (t) {
-      return '<button type="button" role="tab" aria-selected="' + (S.atab === t[0] || (!S.atab && t[0] === "home")) + '" class="tab' + (S.atab === t[0] || (!S.atab && t[0] === "home") ? " on" : "") + '" data-act="atab" data-tab="' + t[0] + '">' + t[1] + "</button>";
-    }).join("") + "</nav>" : "";
-    if (hasProd && S.atab === "produits") {
-      var bp = a.byProduct || {}, pl = prodList(d);
-      var pcards = pl.map(function (p, i) {
-        var o = bp[p.id] || { shipped: 0, sold: 0, revenue: 0 };
-        return '<section class="panel"><h2><span class="sw" style="background:' + PCOL[i % 4] + '"></span> ' + esc(p.name) + "</h2>" +
-          (o.shipped > 0 ? '<div class="mini-grid">' + mini("Reçus", fmt(o.shipped)) + mini("Vendus", fmt(o.sold)) + mini("Restants", fmt(o.shipped - o.sold), o.shipped - o.sold <= 0 ? "neg" : "") + mini("Mes ventes (FCFA)", fmt(o.revenue)) + mini("Prix moyen (FCFA)", o.sold > 0 ? fmt(o.revenue / o.sold) : "—") + "</div>"
-            : '<div class="muted small">Produit à vendre. Tu n\'en as pas encore reçu : le propriétaire doit t\'en envoyer avant que tu puisses le vendre.</div>') + "</section>";
-      }).join("");
-      return "<main>" + header() + atabs + '<section class="panel"><h2>Produits à vendre</h2><div class="hint">Tous les produits de l\'entreprise, avec ton stock et tes ventes pour chacun.</div></section>' + pcards + footer() + "</main>";
-    }
+    var pidA = curP(d);
+    if (pidA) return agentProductView(d, pidA, me);
+    var atabs = ptabBar(d);
     a.avgCost = 0;
     var recent = d.sales.slice(0, 40);
     var rows = recent.map(function (s) {
@@ -734,7 +771,7 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
     var shipPanel = (
       '<section class="panel"><h2>' + ico("truck") + 'Envoyer du stock à un agent</h2><form data-form="shipment" class="fields" novalidate>' +
       '<div class="field"><label for="f1-agent">Agent</label><select id="f1-agent" name="agent_id">' + agentOptions(agents) + "</select></div>" +
-      (prodList(d).length ? '<div class="field"><label for="f1-prod">Produit</label><select id="f1-prod" name="product_id">' + prodList(d).map(function (p) { return '<option value="' + esc(p.id) + '">' + esc(p.name) + "</option>"; }).join("") + "</select></div>" : "") +
+      (prodList(d).length ? '<div class="field"><label for="f1-prod">Produit</label><select id="f1-prod" name="product_id">' + prodList(d).map(function (p) { return '<option value="' + esc(p.id) + '"' + (p.id === curP(d) ? " selected" : "") + ">" + esc(p.name) + "</option>"; }).join("") + "</select></div>" : "") +
       '<div class="field"><label for="f1-date">Date</label><input id="f1-date" name="date" type="date" value="' + today() + '"></div>' +
       '<div class="field"><label for="f1-qty">Quantité envoyée</label><input id="f1-qty" name="qty" type="number" inputmode="numeric" min="1" step="1" required></div>' +
       '<div class="field"><label for="f1-cost">Prix d\'achat unitaire chez le fournisseur (FCFA)</label><input id="f1-cost" name="unit_cost" type="number" inputmode="decimal" min="0" step="any" value="' + esc(lastCost) + '" required></div>' +
@@ -765,7 +802,25 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
 
     var panel = S.action === "shipment" ? (agents.length ? shipPanel : noAgent) : S.action === "remittance" ? (agents.length ? remPanel : noAgent) : S.action === "expense" ? expPanel : S.action === "other" ? (agents.length ? otherPanel : noAgent) : "";
 
-    return '<section class="panel"><h2>Agents · ' + esc(country) + "</h2>" + (agentCards ? '<div class="rows">' + agentCards + "</div>" : '<div class="muted small">Aucun agent.</div>') + "</section>" +
+    var pid = curP(d);
+    if (pid) {
+      var dp = filterProduct(d, pid), pst = countryStats(dp, country), pname = prodName(d, pid);
+      var pCards = pst.rows.map(function (r) {
+        return '<div class="agentcard"><div class="agname">' + esc(r.agent.name || r.agent.email) + '</div><div class="mini-grid">' + mini("Envoyés", fmt(r.shipped)) + mini("Vendus", fmt(r.sold)) + mini("Restants", fmt(r.remaining), r.remaining < 0 ? "neg" : "") + mini("Ventes (FCFA)", fmt(r.revenue)) + mini("Marge (FCFA)", fmt(r.revenue - r.cogs)) + "</div></div>";
+      }).join("");
+      var pSale = dp.sales.filter(function (s) { return ids[s.agent_id]; }).slice(0, 25).map(function (s) {
+        return "<tr><td>" + dateFr(s.sale_date) + '</td><td class="txt">' + esc(nameOf[s.agent_id] || "") + "</td><td>" + fmt(s.qty) + "</td><td>" + fmt(s.amount) + '</td><td class="txt">' + esc(s.place || "") + "</td><td>" + delBtn("sales", s.id, "cette vente") + "</td></tr>";
+      }).join("");
+      var pShip = dp.shipments.filter(function (s) { return ids[s.agent_id]; }).slice(0, 20).map(function (s) {
+        return "<tr><td>" + dateFr(s.ship_date) + '</td><td class="txt">' + esc(nameOf[s.agent_id] || "") + "</td><td>" + fmt(s.qty) + "</td><td>" + fmt(s.unit_cost) + "</td><td>" + fmt(s.transport) + "</td><td>" + fmt(s.arrival_fees) + "</td><td>" + delBtn("shipments", s.id, "cet envoi") + "</td></tr>";
+      }).join("");
+      return ptabBar(d) + '<section class="panel"><h2>Agents · ' + esc(country) + " · " + esc(pname) + '</h2>' + (pCards ? '<div class="rows">' + pCards + "</div>" : '<div class="muted small">Aucun agent.</div>') + "</section>" +
+        productLot(pst.total, country + " · " + pname) + salesChart(dp, agents, "Évolution des ventes · " + country + " · " + pname) +
+        actionTiles(["shipment"]) + (S.action === "shipment" ? (agents.length ? shipPanel : noAgent) : "") +
+        '<section class="panel"><h2>Dernières ventes · ' + esc(pname) + '</h2>' + tableWrap("<th>Jour</th><th>Agent</th><th>Qté</th><th>Montant</th><th>Client</th><th></th>", pSale || emptyRow(6, "Aucune vente."), "", 560) + "</section>" +
+        '<section class="panel"><h2>Stock envoyé · ' + esc(pname) + '</h2>' + tableWrap("<th>Jour</th><th>Agent</th><th>Qté</th><th>Achat/unité</th><th>Transport</th><th>Arrivée</th><th></th>", pShip || emptyRow(7, "Aucun envoi."), "", 620) + "</section>";
+    }
+    return ptabBar(d) + '<section class="panel"><h2>Agents · ' + esc(country) + "</h2>" + (agentCards ? '<div class="rows">' + agentCards + "</div>" : '<div class="muted small">Aucun agent.</div>') + "</section>" +
       lotView(t, country) + productsPanel(d, agents.map(function (a) { return a.id; }), "Par produit · " + country) + salesChart(d, agents, "Évolution des ventes · " + country) +
       actionTiles(["shipment", "remittance", "expense", "other"]) + panel +
       '<section class="panel"><h2>Autres dépenses par jour</h2><div class="hint">Dépenses payées par les agents avec leur recette, jour par jour, avec les motifs.</div>' + tableWrap("<th>Jour</th><th>Agent</th><th>Total</th><th>Motifs</th>", dayExpRows || emptyRow(4, "Aucune dépense."), "", 520) + "</section>" +
@@ -928,7 +983,7 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
       if (!pv) { toast("Écris un nom de produit.", true); return; }
       run(api.updateRow("products", id, { name: pv }), "Produit renommé.");
     }
-    else if (act === "atab") { S.atab = b.getAttribute("data-tab"); render(true); window.scrollTo(0, 0); }
+    else if (act === "ptab") { S.ptab = b.getAttribute("data-p") || ""; S.action = null; render(true); window.scrollTo(0, 0); }
     else if (act === "authmode") { S.authMode = S.authMode === "login" ? "signup" : "login"; S.authMsg = ""; S.authOk = ""; render(true); }
     else if (act === "del") {
       var key = b.getAttribute("data-table") + ":" + id;
