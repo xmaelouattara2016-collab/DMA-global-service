@@ -126,6 +126,7 @@ button.iconbtn svg { width: 18px; height: 18px; }
 .led.soft { color: var(--muted); } .led.plain { border-bottom: 0; padding: 0; }
 .led.topline { border-top: 1px solid var(--line); border-bottom: 0; padding-top: 12px; font-size: 1.02rem; }
 .foot { margin-top: 10px; padding-top: 18px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
+.static { padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--field); font-weight: 600; }
 .renamebox { display: flex; gap: 8px; flex: 1 1 100%; min-width: 0; max-width: 100%; } .renamebox input { flex: 1 1 0; width: auto; min-width: 0; } .renamebox button { flex: 0 0 auto; max-width: 45%; }
 .tiles { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
 @media (min-width: 640px) { .tiles { grid-template-columns: repeat(4, 1fr); } }
@@ -224,21 +225,55 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
   function agg(data, ids) {
     var set = {}; ids.forEach(function (id) { set[id] = 1; });
     var r = { shipped: 0, purchase: 0, transport: 0, arrival: 0, cost: 0, sold: 0, revenue: 0, remitted: 0, spent: 0 };
+    var by = {};
+    function P(row) { var k = row.product_id || "_"; return by[k] || (by[k] = { shipped: 0, cost: 0, sold: 0, revenue: 0 }); }
     data.shipments.forEach(function (s) {
       if (!set[s.agent_id]) return;
-      var q = num(s.qty), p = q * num(s.unit_cost);
-      r.shipped += q; r.purchase += p; r.transport += num(s.transport); r.arrival += num(s.arrival_fees);
-      r.cost += p + num(s.transport) + num(s.arrival_fees);
+      var q = num(s.qty), p = q * num(s.unit_cost), c = p + num(s.transport) + num(s.arrival_fees), pp = P(s);
+      r.shipped += q; r.purchase += p; r.transport += num(s.transport); r.arrival += num(s.arrival_fees); r.cost += c;
+      pp.shipped += q; pp.cost += c;
     });
-    data.sales.forEach(function (s) { if (set[s.agent_id]) { r.sold += num(s.qty); r.revenue += num(s.amount); } });
+    data.sales.forEach(function (s) { if (set[s.agent_id]) { r.sold += num(s.qty); r.revenue += num(s.amount); var pp = P(s); pp.sold += num(s.qty); pp.revenue += num(s.amount); } });
     data.remittances.forEach(function (s) { if (set[s.agent_id]) r.remitted += num(s.amount); });
+    r.cogs = 0; r.stockValue = 0;
+    Object.keys(by).forEach(function (k) {
+      var p = by[k]; p.avgCost = p.shipped > 0 ? p.cost / p.shipped : 0; p.remaining = p.shipped - p.sold;
+      p.cogs = p.sold * p.avgCost; p.stockValue = Math.max(0, p.remaining) * p.avgCost;
+      r.cogs += p.cogs; r.stockValue += p.stockValue;
+    });
+    r.byProduct = by;
     r.avgCost = r.shipped > 0 ? r.cost / r.shipped : 0;
     r.remaining = r.shipped - r.sold;
-    r.cogs = r.sold * r.avgCost;
-    r.stockValue = Math.max(0, r.remaining) * r.avgCost;
     (data.expenses || []).forEach(function (e) { if (e.agent_id && set[e.agent_id]) r.spent += num(e.amount); });
     r.toRemit = r.revenue - r.remitted - r.spent;
     return r;
+  }
+  /* ---------- produits ---------- */
+  function prodList(d) { return (d.products || []).slice().sort(function (a, b) { return a.created_at < b.created_at ? -1 : 1; }); }
+  function prodName(d, id) { var l = d.products || []; for (var i = 0; i < l.length; i++) if (l[i].id === id) return l[i].name; return ""; }
+  function qtyP(d, row) {
+    var multi = (d.products || []).length > 1;
+    return fmt(row.qty) + (multi ? ' <span class="muted small">' + esc(prodName(d, row.product_id)) + "</span>" : "");
+  }
+  function productStats(d, ids) {
+    var out = {};
+    ids.forEach(function (id) {
+      var b = agg(d, [id]).byProduct;
+      Object.keys(b).forEach(function (k) {
+        var o = out[k] || (out[k] = { shipped: 0, sold: 0, revenue: 0, cogs: 0 });
+        o.shipped += b[k].shipped; o.sold += b[k].sold; o.revenue += b[k].revenue; o.cogs += b[k].cogs;
+      });
+    });
+    return out;
+  }
+  function productsPanel(d, ids, title) {
+    var list = prodList(d); if (list.length < 2) return "";
+    var st = productStats(d, ids);
+    var rows = list.map(function (p) {
+      var o = st[p.id] || { shipped: 0, sold: 0, revenue: 0, cogs: 0 }, m = o.revenue - o.cogs;
+      return '<tr><td class="txt">' + esc(p.name) + "</td><td>" + fmt(o.shipped) + "</td><td>" + fmt(o.sold) + "</td><td>" + fmt(o.shipped - o.sold) + "</td><td>" + fmt(o.revenue) + '</td><td class="' + (m < 0 ? "neg" : "") + '">' + fmt(m) + "</td></tr>";
+    }).join("");
+    return '<section class="panel"><h2>' + esc(title) + '</h2><div class="hint">Marge = ventes − coût d\'achat des articles vendus (avant les dépenses).</div>' + tableWrap("<th>Produit</th><th>Envoyés</th><th>Vendus</th><th>Restants</th><th>Ventes</th><th>Marge</th>", rows, "", 460) + "</section>";
   }
   function agentsOf(data, country) {
     return data.profiles.filter(function (p) { return p.role === "agent" && p.country === country; });
@@ -291,15 +326,16 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
       },
       profile: function (id) { return sb.from("profiles").select("*").eq("id", id).maybeSingle().then(ok); },
       loadOwner: function () {
-        return Promise.all([all("profiles", "created_at"), all("shipments", "ship_date"), all("sales", "sale_date"), all("remittances", "paid_date"), all("expenses", "exp_date")])
-          .then(function (a) { return { profiles: a[0], shipments: a[1], sales: a[2], remittances: a[3], expenses: a[4] }; });
+        return Promise.all([all("profiles", "created_at"), all("shipments", "ship_date"), all("sales", "sale_date"), all("remittances", "paid_date"), all("expenses", "exp_date"), all("products", "created_at").catch(function () { return []; })])
+          .then(function (a) { return { profiles: a[0], shipments: a[1], sales: a[2], remittances: a[3], expenses: a[4], products: a[5] }; });
       },
       loadAgent: function () {
-        return Promise.all([all("my_shipments", "ship_date"), all("sales", "sale_date"), all("remittances", "paid_date"), all("expenses", "exp_date")])
-          .then(function (a) { return { profiles: [], shipments: a[0], sales: a[1], remittances: a[2], expenses: a[3] }; });
+        return Promise.all([all("my_shipments", "ship_date"), all("sales", "sale_date"), all("remittances", "paid_date"), all("expenses", "exp_date"), all("products", "created_at").catch(function () { return []; })])
+          .then(function (a) { return { profiles: [], shipments: a[0], sales: a[1], remittances: a[2], expenses: a[3], products: a[4] }; });
       },
       insert: function (table, row) { return sb.from(table).insert(row).then(ok); },
       remove: function (table, id) { return sb.from(table).delete().eq("id", id).then(ok); },
+      updateRow: function (table, id, patch) { return sb.from(table).update(patch).eq("id", id).then(ok); },
       updateProfile: function (id, patch) { return sb.from("profiles").update(patch).eq("id", id).then(ok); },
       subscribe: function (cb) {
         try { sb.channel("gs-live").on("postgres_changes", { event: "*", schema: "public" }, cb).subscribe(); } catch (e) {}
@@ -324,6 +360,8 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
     if (/at least 6|Password should/i.test(m)) return "Mot de passe : 6 caractères minimum.";
     if (/valid email|invalid format/i.test(m)) return "Adresse email non valide.";
     if (/rate limit/i.test(m)) return "Trop de tentatives. Réessaie dans quelques minutes.";
+    if (/foreign key|still referenced/i.test(m)) return "Ce produit a déjà du stock ou des ventes : tu ne peux pas le supprimer.";
+    if (/products_name_uniq|duplicate key/i.test(m)) return "Ce produit existe déjà.";
     if (/row-level security/i.test(m)) return "Action refusée : tu n'as pas de stock disponible.";
     if (/Failed to fetch|NetworkError|network/i.test(m)) return "Pas de connexion internet.";
     return m;
@@ -402,9 +440,9 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
     a.avgCost = 0;
     var recent = d.sales.slice(0, 40);
     var rows = recent.map(function (s) {
-      return "<tr><td>" + dateFr(s.sale_date) + "</td><td>" + fmt(s.qty) + "</td><td>" + fmt(s.amount) + '</td><td class="txt">' + esc(s.place || "") + "</td></tr>";
+      return "<tr><td>" + dateFr(s.sale_date) + "</td><td>" + qtyP(d, s) + "</td><td>" + fmt(s.amount) + '</td><td class="txt">' + esc(s.place || "") + "</td></tr>";
     }).join("");
-    var ship = d.shipments.slice(0, 15).map(function (s) { return "<tr><td>" + dateFr(s.ship_date) + "</td><td>" + fmt(s.qty) + "</td></tr>"; }).join("");
+    var ship = d.shipments.slice(0, 15).map(function (s) { return "<tr><td>" + dateFr(s.ship_date) + "</td><td>" + qtyP(d, s) + "</td></tr>"; }).join("");
     var rem = d.remittances.slice(0, 15).map(function (s) { return "<tr><td>" + dateFr(s.paid_date) + "</td><td>" + fmt(s.amount) + "</td></tr>"; }).join("");
     var dayMine = {};
     (d.expenses || []).forEach(function (e) {
@@ -415,28 +453,33 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
     var dayMineRows = Object.keys(dayMine).sort().reverse().slice(0, 30).map(function (k) {
       return "<tr><td>" + dateFr(k) + "</td><td>" + fmt(dayMine[k].total) + '</td><td class="txt">' + esc(dayMine[k].motifs.join(" · ")) + "</td></tr>";
     }).join("");
-    var noStock = a.shipped <= 0, soldOut = !noStock && a.remaining <= 0;
+    var plist = prodList(d), byP = a.byProduct || {};
+    var avail = plist.filter(function (p) { var o = byP[p.id]; return o && o.shipped - o.sold > 0; });
+    var noStock = a.shipped <= 0, soldOut = !noStock && (plist.length ? avail.length === 0 : a.remaining <= 0);
+    var firstRem = plist.length ? (avail[0] ? byP[avail[0].id].shipped - byP[avail[0].id].sold : 0) : a.remaining;
+    var prodField = plist.length ? (avail.length > 1 ? '<div class="field"><label for="s-prod">Produit</label><select id="s-prod" name="product_id">' + avail.map(function (p) { var o = byP[p.id]; return '<option value="' + esc(p.id) + '" data-rem="' + (o.shipped - o.sold) + '">' + esc(p.name) + " (" + fmt(o.shipped - o.sold) + " en stock)</option>"; }).join("") + "</select></div>" : avail.length ? '<input type="hidden" name="product_id" value="' + esc(avail[0].id) + '"><div class="field"><label>Produit</label><div class="static">' + esc(avail[0].name) + "</div></div>" : "") : "";
+    var stockByProd = plist.length > 1 ? '<section class="panel"><h2>Mon stock par produit</h2>' + tableWrap("<th>Produit</th><th>Reçus</th><th>Vendus</th><th>Restants</th>", plist.filter(function (p) { return byP[p.id]; }).map(function (p) { var o = byP[p.id]; return '<tr><td class="txt">' + esc(p.name) + "</td><td>" + fmt(o.shipped) + "</td><td>" + fmt(o.sold) + "</td><td>" + fmt(o.shipped - o.sold) + "</td></tr>"; }).join("") || emptyRow(4, "Aucun stock."), "", 0) + "</section>" : "";
     var agentPanel = (S.action === "other" && !noStock) ? '<section class="panel"><h2>' + ico("wallet") + 'Autre dépense</h2><div class="hint">Une dépense faite avec l\'argent de tes ventes, quand le propriétaire te le demande. Elle est retirée de ce que tu dois verser. Seul le propriétaire peut la retirer.</div><form data-form="agentexp" class="fields" novalidate>' +
       '<div class="field"><label for="x-date">Date</label><input id="x-date" name="date" type="date" value="' + today() + '"></div>' +
       '<div class="field"><label for="x-amount">Montant dépensé (FCFA)</label><input id="x-amount" name="amount" type="number" inputmode="decimal" min="1" step="any" required></div>' +
       '<div class="field wide"><label for="x-motif">Motif de la dépense</label><input id="x-motif" name="motif" type="text" autocomplete="off" placeholder="Ex : transport, repas, emballage" required></div>' +
       '<div class="field wide"><button class="primary" type="submit"' + (S.busy ? " disabled" : "") + ">Enregistrer la dépense</button></div></form></section>" : "";
     return '<main>' + header() +
-      '<section class="panel result"><div class="bigline"><span class="eyebrow">Sachets restants</span><span class="big ' + (a.remaining < 0 ? "neg" : "") + '">' + fmt(a.remaining) + '</span><span class="muted small">' + fmt(a.shipped) + " reçus · " + fmt(a.sold) + " vendus</span></div>" +
+      '<section class="panel result"><div class="bigline"><span class="eyebrow">Stock restant</span><span class="big ' + (a.remaining < 0 ? "neg" : "") + '">' + fmt(a.remaining) + '</span><span class="muted small">' + fmt(a.shipped) + " reçus · " + fmt(a.sold) + " vendus</span></div>" +
       '<div class="pair">' + statTile("Total à me verser", money(a.revenue), "Somme de tes ventes") + statTile("Déjà versé", money(a.remitted)) + (a.spent > 0 ? statTile("Dépenses payées", money(a.spent), "Prises sur ta recette") : "") + statTile("Reste à verser", money(a.toRemit), "", a.toRemit > 0 ? "warn" : "pos") + "</div></section>" +
-      (noStock ? '<section class="panel notice"><h2>Pas encore de stock</h2><div class="hint">Tu n\'as pas encore reçu de stock. Tant que le propriétaire ne t\'a pas envoyé de sachets, tu peux consulter le site mais tu ne peux rien enregistrer.</div></section>' : actionTiles(["other"]) + agentPanel) +
-      (noStock ? "" : soldOut ? '<section class="panel notice"><h2>Stock épuisé</h2><div class="hint">Tu as vendu tous tes sachets. Tu pourras enregistrer de nouvelles ventes quand le propriétaire t\'enverra du stock.</div></section>' : '<section class="panel"><h2>Enregistrer une vente</h2><form data-form="sale" class="fields" novalidate>' +
+      (noStock ? '<section class="panel notice"><h2>Pas encore de stock</h2><div class="hint">Tu n\'as pas encore reçu de stock. Tant que le propriétaire ne t\'a pas envoyé de stock, tu peux consulter le site mais tu ne peux rien enregistrer.</div></section>' : actionTiles(["other"]) + agentPanel) +
+      (noStock ? "" : soldOut ? '<section class="panel notice"><h2>Stock épuisé</h2><div class="hint">Tu as vendu tout ton stock. Tu pourras enregistrer de nouvelles ventes quand le propriétaire t\'enverra du stock.</div></section>' : '<section class="panel"><h2>Enregistrer une vente</h2><form data-form="sale" class="fields" novalidate>' + prodField +
       '<div class="field"><label for="s-date">Date</label><input id="s-date" name="date" type="date" value="' + today() + '" required></div>' +
-      '<div class="field"><label for="s-qty">Sachets vendus</label><input id="s-qty" name="qty" type="number" inputmode="numeric" min="1" max="' + Math.max(0, Math.floor(a.remaining)) + '" step="1" required></div>' +
+      '<div class="field"><label for="s-qty">Quantité vendue</label><input id="s-qty" name="qty" type="number" inputmode="numeric" min="1" max="' + Math.max(0, Math.floor(firstRem)) + '" step="1" required></div>' +
       '<div class="field"><label for="s-amount">Montant à me verser (FCFA)</label><input id="s-amount" name="amount" type="number" inputmode="decimal" min="0" step="any" required></div>' +
       '<div class="field"><label for="s-place">Client et ville (facultatif)</label><input id="s-place" name="place" type="text" autocomplete="off"></div>' +
       '<div class="field wide"><button class="primary" type="submit"' + (S.busy ? " disabled" : "") + ">Enregistrer la vente</button></div></form></section>") +
-      salesChart(d, [{ id: me, name: "Mes ventes" }], "Évolution de mes ventes") +
+      stockByProd + salesChart(d, [{ id: me, name: "Mes ventes" }], "Évolution de mes ventes") +
       '<section class="panel"><h2>Mes dernières ventes</h2><div class="hint">Une vente enregistrée ne peut être retirée que par le propriétaire. En cas d\'erreur, préviens-le.</div>' +
-      tableWrap("<th>Jour</th><th>Sachets</th><th>Montant</th><th>Client</th>", rows || emptyRow(4, "Aucune vente pour le moment."), "", 400) + "</section>" +
+      tableWrap("<th>Jour</th><th>Qté</th><th>Montant</th><th>Client</th>", rows || emptyRow(4, "Aucune vente pour le moment."), "", 400) + "</section>" +
       '<section class="panel"><h2>Mes autres dépenses par jour</h2><div class="hint">Dépenses payées avec ta recette, avec les motifs. Elles sont retirées de la somme à verser.</div>' + tableWrap("<th>Jour</th><th>Total du jour</th><th>Motifs</th>", dayMineRows || emptyRow(3, "Aucune dépense."), "", 420) + "</section>" +
       '<section class="panel"><h2>Stock reçu et sommes versées</h2><div class="pair2"><div>' +
-      tableWrap("<th>Jour</th><th>Sachets reçus</th>", ship || emptyRow(2, "Aucun envoi."), "", 0) + "</div><div>" +
+      tableWrap("<th>Jour</th><th>Reçus</th>", ship || emptyRow(2, "Aucun envoi."), "", 0) + "</div><div>" +
       tableWrap("<th>Jour</th><th>Versé (FCFA)</th>", rem || emptyRow(2, "Aucun versement."), "", 0) + "</div></div></section>" + footer() + "</main>";
   }
 
@@ -465,7 +508,7 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
     T.margin = T.revenue > 0 ? T.profit / T.revenue * 100 : 0;
     return { total: T, present: present };
   }
-  var PROFIT_NOTE = "Ventes − coût des sachets vendus (achat + transport + arrivée) − dépenses";
+  var PROFIT_NOTE = "Ventes − coût des articles vendus (achat + transport + arrivée) − dépenses";
 
   function lotView(t, label) {
     var avgBuy = t.shipped > 0 ? t.purchase / t.shipped : 0;
@@ -474,7 +517,7 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
     var cover = avgPrice > 0 ? Math.max(0, Math.ceil(out / avgPrice)) : null;
     var pctSold = t.shipped > 0 ? Math.max(0, Math.min(100, t.sold / t.shipped * 100)) : 0;
     var parts = [
-      { c: "var(--c1)", name: "Achat des sachets", v: t.purchase },
+      { c: "var(--c1)", name: "Achat du stock", v: t.purchase },
       { c: "var(--c2)", name: "Transport et frais", v: t.transport + t.arrival },
       { c: "var(--c3)", name: "Campagnes", v: t.campaigns },
       { c: "var(--c4)", name: "Autres dépenses", v: t.others }
@@ -484,15 +527,15 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
       return '<div><div class="small"><span class="sw" style="background:' + p.c + '"></span>' + p.name + ' <span class="muted">' + (out > 0 ? Math.round(p.v / out * 100) : 0) + NB + "%</span></div><div class=\"stat\">" + money(p.v) + "</div></div>";
     }).join("");
     return '<section class="panel"><h2>Le lot · ' + esc(label) + "</h2>" +
-      led("Sachets achetés et envoyés", fmt(t.shipped)) + led("Prix d\'achat moyen par sachet", money(avgBuy)) + led("Transport payé", money(t.transport)) + led("Autres frais d\'arrivée", money(t.arrival)) +
-      led("Coût du lot à l\'arrivée", money(t.cost), "", "sub") + led("Coût de revient par sachet", money(t.avgCost), "", "soft") + "</section>" +
+      led("Articles achetés et envoyés", fmt(t.shipped)) + led("Prix d\'achat moyen par article", money(avgBuy)) + led("Transport payé", money(t.transport)) + led("Autres frais d\'arrivée", money(t.arrival)) +
+      led("Coût du lot à l\'arrivée", money(t.cost), "", "sub") + led("Coût de revient par article", money(t.avgCost), "", "soft") + "</section>" +
       '<section class="panel result"><div class="bigline"><span class="eyebrow">Bénéfice net · ' + esc(label) + '</span><span class="big ' + cls(t.profit) + '">' + money(t.profit) + '</span><span class="muted small">' + PROFIT_NOTE + "</span></div>" +
-      '<div class="pair">' + statTile("Chiffre d\'affaires", money(t.revenue), fmt(t.sold) + " sachets vendus") +
+      '<div class="pair">' + statTile("Chiffre d\'affaires", money(t.revenue), fmt(t.sold) + " vendus") +
       statTile("Reste à recevoir", money(t.toRemit), "Déjà reçu : " + money(t.remitted) + (t.spent > 0 ? " · Dépenses payées par les agents : " + money(t.spent) : ""), t.toRemit > 0 ? "warn" : "pos") +
-      statTile("Prix de vente moyen", t.sold > 0 ? money(avgPrice) : "—", "Par sachet vendu") +
+      statTile("Prix de vente moyen", t.sold > 0 ? money(avgPrice) : "—", "Par article vendu") +
       statTile("Marge", t.revenue > 0 ? pct(t.margin) : "—", "Bénéfice sur le chiffre d\'affaires") +
-      statTile("Pour couvrir les dépenses", cover == null ? "—" : fmt(cover) + " sachets", "Au prix de vente moyen") +
-      statTile("Valeur du stock restant", money(t.stockValue), fmt(t.remaining) + " sachets, au coût") + "</div>" +
+      statTile("Pour couvrir les dépenses", cover == null ? "—" : fmt(cover) + " articles", "Au prix de vente moyen") +
+      statTile("Valeur du stock restant", money(t.stockValue), fmt(t.remaining) + " articles, au coût") + "</div>" +
       '<div class="rule"></div>' +
       '<div class="led plain"><span class="eyebrow">Stock vendu</span><b>' + fmt(t.sold) + " vendus sur " + fmt(t.shipped) + " · reste " + fmt(t.remaining) + "</b></div>" +
       '<div class="bar"><i style="width:' + pctSold + '%;background:var(--accent)"></i></div>' +
@@ -576,8 +619,8 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
     }).join("");
     var allRows = [];
     A.present.forEach(function (c) { countryStats(d, c).rows.forEach(function (r) { allRows.push(r); }); });
-    var per = A.present.map(function (c) { var st = countryStats(d, c); return agentsPanel(st.rows, "Agents · " + c, false) + lotView(st.total, c) + salesChart(d, st.agents, "Évolution des ventes · " + c); }).join("");
-    return agentsPanel(allRows, "Agents · tous pays", true) + lotView(T, "Tous pays") + salesChart(d, allRows.map(function (r) { return r.agent; }), "Évolution des ventes · tous pays") +
+    var per = A.present.map(function (c) { var st = countryStats(d, c); return agentsPanel(st.rows, "Agents · " + c, false) + lotView(st.total, c) + productsPanel(d, st.agents.map(function (a) { return a.id; }), "Par produit · " + c) + salesChart(d, st.agents, "Évolution des ventes · " + c); }).join("");
+    return agentsPanel(allRows, "Agents · tous pays", true) + lotView(T, "Tous pays") + productsPanel(d, allRows.map(function (r) { return r.agent.id; }), "Par produit · tous pays") + salesChart(d, allRows.map(function (r) { return r.agent; }), "Évolution des ventes · tous pays") +
       '<section class="panel"><h2>Par pays</h2><div class="hint">Montants en FCFA. Touche un pays pour ouvrir son onglet.</div>' +
       (cards ? '<div class="rows">' + cards + "</div>" : '<div class="muted small">Aucun agent validé pour le moment. Va dans l\'onglet Agents.</div>') + "</section>" +
       (per ? '<h2 class="sect">Détail de chaque pays</h2>' + per : "");
@@ -593,7 +636,7 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
     var ships = d.shipments.slice(0, 80).map(function (s) {
       var q = num(s.qty), u = num(s.unit_cost), tr = num(s.transport), ar = num(s.arrival_fees), tot = q * u + tr + ar;
       return '<div class="agentcard"><div class="agname">' + dateFr(s.ship_date) + " · " + esc(nameOf[s.agent_id] || "") + ' <span class="muted small">(' + esc(countryOf[s.agent_id]) + ')</span></div><div class="mini-grid">' +
-        mini("Sachets", fmt(q)) + mini("Prix / sachet", fmt(u)) + mini("Achat", fmt(q * u)) + mini("Transport", fmt(tr)) + mini("Frais d\'arrivée", fmt(ar)) + mini("Coût total", fmt(tot)) + mini("Coût / sachet", fmt(q > 0 ? tot / q : 0)) + "</div>" + '<div>' + delBtn("shipments", s.id, "cet envoi") + "</div></div>";
+        mini("Produit", prodName(d, s.product_id) || "—") + mini("Quantité", fmt(q)) + mini("Prix unitaire", fmt(u)) + mini("Achat", fmt(q * u)) + mini("Transport", fmt(tr)) + mini("Frais d\'arrivée", fmt(ar)) + mini("Coût total", fmt(tot)) + mini("Coût unitaire", fmt(q > 0 ? tot / q : 0)) + "</div>" + '<div>' + delBtn("shipments", s.id, "cet envoi") + "</div></div>";
     }).join("");
     html += '<section class="panel"><h2>Détail des achats et envois</h2><div class="hint">Chaque envoi de stock, avec le prix chez le fournisseur, le transport et les frais d\'arrivée. Les agents ne voient pas ces coûts.</div>' + (ships ? '<div class="rows">' + ships + "</div>" : '<div class="muted small">Aucun envoi enregistré.</div>') + "</section>";
     var isDaily = function (e) { return e.kind === "autre" || !!e.agent_id; };
@@ -651,10 +694,10 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
     var dayRows = Object.keys(byDay).sort().reverse().slice(0, 30).map(function (k) { return "<tr><td>" + dateFr(k) + "</td><td>" + fmt(byDay[k].q) + "</td><td>" + fmt(byDay[k].a) + "</td></tr>"; }).join("");
 
     var saleRows = cSales.slice(0, 25).map(function (s) {
-      return "<tr><td>" + dateFr(s.sale_date) + '</td><td class="txt">' + esc(nameOf[s.agent_id] || "") + "</td><td>" + fmt(s.qty) + "</td><td>" + fmt(s.amount) + '</td><td class="txt">' + esc(s.place || "") + "</td><td>" + delBtn("sales", s.id, "cette vente") + "</td></tr>";
+      return "<tr><td>" + dateFr(s.sale_date) + '</td><td class="txt">' + esc(nameOf[s.agent_id] || "") + "</td><td>" + qtyP(d, s) + "</td><td>" + fmt(s.amount) + '</td><td class="txt">' + esc(s.place || "") + "</td><td>" + delBtn("sales", s.id, "cette vente") + "</td></tr>";
     }).join("");
     var cShip = d.shipments.filter(function (s) { return ids[s.agent_id]; }).slice(0, 20).map(function (s) {
-      return "<tr><td>" + dateFr(s.ship_date) + '</td><td class="txt">' + esc(nameOf[s.agent_id] || "") + "</td><td>" + fmt(s.qty) + "</td><td>" + fmt(s.unit_cost) + "</td><td>" + fmt(s.transport) + "</td><td>" + fmt(s.arrival_fees) + "</td><td>" + delBtn("shipments", s.id, "cet envoi") + "</td></tr>";
+      return "<tr><td>" + dateFr(s.ship_date) + '</td><td class="txt">' + esc(nameOf[s.agent_id] || "") + "</td><td>" + qtyP(d, s) + "</td><td>" + fmt(s.unit_cost) + "</td><td>" + fmt(s.transport) + "</td><td>" + fmt(s.arrival_fees) + "</td><td>" + delBtn("shipments", s.id, "cet envoi") + "</td></tr>";
     }).join("");
     var cRem = d.remittances.filter(function (s) { return ids[s.agent_id]; }).slice(0, 20).map(function (s) {
       return "<tr><td>" + dateFr(s.paid_date) + '</td><td class="txt">' + esc(nameOf[s.agent_id] || "") + "</td><td>" + fmt(s.amount) + "</td><td>" + delBtn("remittances", s.id, "ce versement") + "</td></tr>";
@@ -677,9 +720,10 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
     var shipPanel = (
       '<section class="panel"><h2>' + ico("truck") + 'Envoyer du stock à un agent</h2><form data-form="shipment" class="fields" novalidate>' +
       '<div class="field"><label for="f1-agent">Agent</label><select id="f1-agent" name="agent_id">' + agentOptions(agents) + "</select></div>" +
+      (prodList(d).length ? '<div class="field"><label for="f1-prod">Produit</label><select id="f1-prod" name="product_id">' + prodList(d).map(function (p) { return '<option value="' + esc(p.id) + '">' + esc(p.name) + "</option>"; }).join("") + "</select></div>" : "") +
       '<div class="field"><label for="f1-date">Date</label><input id="f1-date" name="date" type="date" value="' + today() + '"></div>' +
-      '<div class="field"><label for="f1-qty">Sachets envoyés</label><input id="f1-qty" name="qty" type="number" inputmode="numeric" min="1" step="1" required></div>' +
-      '<div class="field"><label for="f1-cost">Prix d\'achat par sachet chez le fournisseur (FCFA)</label><input id="f1-cost" name="unit_cost" type="number" inputmode="decimal" min="0" step="any" value="' + esc(lastCost) + '" required></div>' +
+      '<div class="field"><label for="f1-qty">Quantité envoyée</label><input id="f1-qty" name="qty" type="number" inputmode="numeric" min="1" step="1" required></div>' +
+      '<div class="field"><label for="f1-cost">Prix d\'achat unitaire chez le fournisseur (FCFA)</label><input id="f1-cost" name="unit_cost" type="number" inputmode="decimal" min="0" step="any" value="' + esc(lastCost) + '" required></div>' +
       '<div class="field"><label for="f1-tr">Transport vers ce pays, total (FCFA)</label><input id="f1-tr" name="transport" type="number" inputmode="decimal" min="0" step="any" placeholder="0"></div>' +
       '<div class="field"><label for="f1-ar">Frais d\'arrivée, total (FCFA)</label><input id="f1-ar" name="arrival_fees" type="number" inputmode="decimal" min="0" step="any" placeholder="0"><span class="hint">Les agents ne voient pas ces coûts.</span></div>' +
       '<div class="field wide"><button class="primary" type="submit">Enregistrer l\'envoi</button></div></form></section>'
@@ -708,12 +752,12 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
     var panel = S.action === "shipment" ? (agents.length ? shipPanel : noAgent) : S.action === "remittance" ? (agents.length ? remPanel : noAgent) : S.action === "expense" ? expPanel : S.action === "other" ? (agents.length ? otherPanel : noAgent) : "";
 
     return '<section class="panel"><h2>Agents · ' + esc(country) + "</h2>" + (agentCards ? '<div class="rows">' + agentCards + "</div>" : '<div class="muted small">Aucun agent.</div>') + "</section>" +
-      lotView(t, country) + salesChart(d, agents, "Évolution des ventes · " + country) +
+      lotView(t, country) + productsPanel(d, agents.map(function (a) { return a.id; }), "Par produit · " + country) + salesChart(d, agents, "Évolution des ventes · " + country) +
       actionTiles(["shipment", "remittance", "expense", "other"]) + panel +
       '<section class="panel"><h2>Autres dépenses par jour</h2><div class="hint">Dépenses payées par les agents avec leur recette, jour par jour, avec les motifs.</div>' + tableWrap("<th>Jour</th><th>Agent</th><th>Total</th><th>Motifs</th>", dayExpRows || emptyRow(4, "Aucune dépense."), "", 520) + "</section>" +
-      '<section class="panel"><h2>Ventes par jour</h2>' + tableWrap("<th>Jour</th><th>Sachets</th><th>Montant (FCFA)</th>", dayRows || emptyRow(3, "Aucune vente."), "", 0) + "</section>" +
-      '<section class="panel"><h2>Dernières ventes saisies</h2>' + tableWrap("<th>Jour</th><th>Agent</th><th>Sachets</th><th>Montant</th><th>Client</th><th></th>", saleRows || emptyRow(6, "Aucune vente."), "", 560) + "</section>" +
-      '<section class="panel"><h2>Envois, versements et dépenses</h2><h3>Stock envoyé</h3>' + tableWrap("<th>Jour</th><th>Agent</th><th>Sachets</th><th>Achat/sachet</th><th>Transport</th><th>Arrivée</th><th></th>", cShip || emptyRow(7, "Aucun envoi."), "", 620) +
+      '<section class="panel"><h2>Ventes par jour</h2>' + tableWrap("<th>Jour</th><th>Qté</th><th>Montant (FCFA)</th>", dayRows || emptyRow(3, "Aucune vente."), "", 0) + "</section>" +
+      '<section class="panel"><h2>Dernières ventes saisies</h2>' + tableWrap("<th>Jour</th><th>Agent</th><th>Qté</th><th>Montant</th><th>Client</th><th></th>", saleRows || emptyRow(6, "Aucune vente."), "", 560) + "</section>" +
+      '<section class="panel"><h2>Envois, versements et dépenses</h2><h3>Stock envoyé</h3>' + tableWrap("<th>Jour</th><th>Agent</th><th>Qté</th><th>Achat/unité</th><th>Transport</th><th>Arrivée</th><th></th>", cShip || emptyRow(7, "Aucun envoi."), "", 620) +
       "<h3>Versements reçus</h3>" + tableWrap("<th>Jour</th><th>Agent</th><th>Montant</th><th></th>", cRem || emptyRow(4, "Aucun versement."), "", 420) +
       "<h3>Dépenses de campagnes</h3>" + tableWrap("<th>Jour</th><th>Type</th><th>Description</th><th>Montant</th><th></th>", cExp || emptyRow(5, "Aucune dépense."), "", 500) + "</section>";
   }
@@ -737,7 +781,13 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
     var actHtml = act.length ? act.map(function (p) {
       return '<div class="row"><div class="rowtxt"><strong>' + esc(p.name || "") + '</strong><div class="hint">' + esc(p.email || "") + "</div></div>" + renameBox(p) + countrySel(p.id, p.country) + '<button type="button" class="mini2" data-act="setcountry" data-id="' + esc(p.id) + '">Changer le pays</button><button type="button" class="mini danger" data-act="deactivate" data-id="' + esc(p.id) + '">Désactiver</button></div>';
     }).join("") : '<div class="muted small">Aucun agent validé.</div>';
-    return '<section class="panel"><h2>Propriétaires</h2><div class="hint">Change le nom affiché d\'un propriétaire ici.</div><div class="rows">' + ownHtml + "</div></section>" +
+    var plist = prodList(d);
+    var prodHtml = plist.length ? plist.map(function (p) {
+      return '<div class="row"><div class="renamebox"><input type="text" data-pname="' + esc(p.id) + '" value="' + esc(p.name) + '" aria-label="Nom du produit" autocomplete="off"><button type="button" class="mini2" data-act="renameprod" data-id="' + esc(p.id) + '">Renommer</button></div>' + delBtn("products", p.id, "ce produit") + "</div>";
+    }).join("") : '<div class="muted small">Les produits ne sont pas encore activés : lance la mise à jour 5 dans Supabase (fichier mise-a-jour-5.sql).</div>';
+    var prodPanel = '<section class="panel"><h2>Produits</h2><div class="hint">Les produits que tu vends. Quand tu envoies du stock, tu choisis le produit. Chaque agent voit et vend les produits qu\'il a reçus. Un produit déjà utilisé ne peut plus être supprimé.</div><div class="rows">' + prodHtml + "</div>" +
+      (plist.length ? '<form data-form="newproduct" class="fields" novalidate><div class="field wide"><label for="np-name">Nouveau produit</label><input id="np-name" name="name" type="text" autocomplete="off" placeholder="Ex : Savon, Huile, Crème"></div><div class="field wide"><button class="primary" type="submit"' + (S.busy ? " disabled" : "") + ">Ajouter le produit</button></div></form>" : "") + "</section>";
+    return prodPanel + '<section class="panel"><h2>Propriétaires</h2><div class="hint">Change le nom affiché d\'un propriétaire ici.</div><div class="rows">' + ownHtml + "</div></section>" +
       '<section class="panel"><h2>Comptes en attente</h2><div class="hint">Envoie l\'adresse de l\'application à ton agent. Il crée son compte, puis il apparaît ici. Choisis son pays et valide.</div><div class="rows">' + pendHtml + "</div></section>" +
       '<section class="panel"><h2>Agents validés</h2><div class="rows">' + actHtml + "</div></section>";
   }
@@ -829,6 +879,11 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
       if (!nv) { toast("Écris un nom.", true); return; }
       run(api.updateProfile(id, { name: nv }), "Nom modifié.");
     }
+    else if (act === "renameprod") {
+      var pinp = $app.querySelector('input[data-pname="' + id + '"]'), pv = pinp ? pinp.value.trim() : "";
+      if (!pv) { toast("Écris un nom de produit.", true); return; }
+      run(api.updateRow("products", id, { name: pv }), "Produit renommé.");
+    }
     else if (act === "authmode") { S.authMode = S.authMode === "login" ? "signup" : "login"; S.authMsg = ""; S.authOk = ""; render(true); }
     else if (act === "del") {
       var key = b.getAttribute("data-table") + ":" + id;
@@ -850,6 +905,12 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
     }
   });
 
+  $app.addEventListener("change", function (e) {
+    if (e.target && e.target.id === "s-prod") {
+      var opt = e.target.options[e.target.selectedIndex], q = $app.querySelector("#s-qty");
+      if (opt && q) q.max = opt.getAttribute("data-rem") || "";
+    }
+  });
   $app.addEventListener("submit", function (e) {
     var f = e.target.closest("form[data-form]"); if (!f) return;
     e.preventDefault();
@@ -884,6 +945,12 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
       api.changePassword(S.profile.email, po, pn).then(function () { S.busy = false; S.pwOpen = false; S.pwMsg = ""; render(true); toast("Mot de passe modifié."); }, function (err) { S.busy = false; S.pwMsg = errText(err); render(true); });
       return;
     }
+    if (kind === "newproduct") {
+      var pn = v("name");
+      if (!pn) { toast("Écris le nom du produit.", true); return; }
+      run(api.insert("products", { name: pn }), "Produit ajouté.");
+      return;
+    }
     if (kind === "agentexp" || kind === "ownerexp") {
       var xa = num(v("amount")), xm = v("motif");
       var xagent = kind === "agentexp" ? S.session.user.id : v("agent_id");
@@ -897,16 +964,19 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
     }
     if (kind === "sale") {
       var q = num(v("qty")), a = num(v("amount"));
-      if (q < 1 || !isFinite(a) || v("amount") === "") { toast("Indique le nombre de sachets et le montant.", true); return; }
-      var mine = agg(S.data || { shipments: [], sales: [], remittances: [] }, [S.session.user.id]);
+      if (q < 1 || !isFinite(a) || v("amount") === "") { toast("Indique la quantité et le montant.", true); return; }
+      var mine = agg(S.data || { shipments: [], sales: [], remittances: [] }, [S.session.user.id]), pid = v("product_id");
       if (mine.shipped <= 0) { toast("Tu n'as pas encore reçu de stock.", true); return; }
-      if (q > mine.remaining) { toast("Tu n'as que " + fmt(mine.remaining) + " sachet(s) en stock.", true); return; }
-      run(api.insert("sales", { agent_id: S.session.user.id, sale_date: v("date") || today(), qty: Math.round(q), amount: a, place: v("place") || null }), "Vente enregistrée.");
+      var rem = pid && mine.byProduct[pid] ? mine.byProduct[pid].shipped - mine.byProduct[pid].sold : mine.remaining;
+      if (q > rem) { toast("Tu n'as que " + fmt(rem) + " article(s) en stock pour ce produit.", true); return; }
+      var saleRow = { agent_id: S.session.user.id, sale_date: v("date") || today(), qty: Math.round(q), amount: a, place: v("place") || null }; if (pid) saleRow.product_id = pid;
+      run(api.insert("sales", saleRow), "Vente enregistrée.");
     } else if (kind === "shipment") {
       var sq = num(v("qty")), sc = num(v("unit_cost")), st = Math.max(0, num(v("transport"))), sa = Math.max(0, num(v("arrival_fees")));
-      if (!v("agent_id") || sq < 1 || v("unit_cost") === "") { toast("Choisis l'agent, le nombre de sachets et le prix d'achat.", true); return; }
+      if (!v("agent_id") || sq < 1 || v("unit_cost") === "") { toast("Choisis l'agent, la quantité et le prix d'achat.", true); return; }
       lsSet(COST_KEY, v("unit_cost")); S.action = null;
-      run(api.insert("shipments", { agent_id: v("agent_id"), ship_date: v("date") || today(), qty: Math.round(sq), unit_cost: sc, transport: st, arrival_fees: sa }), "Envoi enregistré.");
+      var shRow = { agent_id: v("agent_id"), ship_date: v("date") || today(), qty: Math.round(sq), unit_cost: sc, transport: st, arrival_fees: sa }; if (v("product_id")) shRow.product_id = v("product_id");
+      run(api.insert("shipments", shRow), "Envoi enregistré.");
     } else if (kind === "remittance") {
       var ra = num(v("amount"));
       if (!v("agent_id") || ra <= 0) { toast("Choisis l'agent et le montant.", true); return; }
