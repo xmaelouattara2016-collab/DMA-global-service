@@ -446,19 +446,31 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
     }).join("") + "</nav>";
   }
   function filterProduct(d, pid) {
-    return { profiles: d.profiles || [], products: d.products || [], remittances: [], expenses: [],
+    return { profiles: d.profiles || [], products: d.products || [], remittances: [], expenses: (d.expenses || []).filter(function (e) { return e.product_id === pid; }),
       shipments: d.shipments.filter(function (s) { return s.product_id === pid; }), sales: d.sales.filter(function (s) { return s.product_id === pid; }) };
   }
   function productLot(t, label) {
     var avgBuy = t.shipped > 0 ? t.purchase / t.shipped : 0, avgPrice = t.sold > 0 ? t.revenue / t.sold : 0;
-    var pctSold = t.shipped > 0 ? Math.max(0, Math.min(100, t.sold / t.shipped * 100)) : 0;
+    var pctSold = t.shipped > 0 ? Math.max(0, Math.min(100, t.sold / t.shipped * 100)) : 0, out = t.cost + t.expenses;
+    var parts = [{ c: "var(--c1)", name: "Achat du stock", v: t.purchase }, { c: "var(--c2)", name: "Transport et frais", v: t.transport + t.arrival }, { c: "var(--c3)", name: "Campagnes", v: t.campaigns }, { c: "var(--c4)", name: "Autres dépenses", v: t.others }];
+    var segs = parts.map(function (p) { return out > 0 && p.v > 0 ? '<i style="width:' + (p.v / out * 100) + "%;background:" + p.c + '"></i>' : ""; }).join("");
+    var legend = parts.map(function (p) { return '<div><div class="small"><span class="sw" style="background:' + p.c + '"></span>' + p.name + ' <span class="muted">' + (out > 0 ? Math.round(p.v / out * 100) : 0) + NB + '%</span></div><div class="stat">' + money(p.v) + "</div></div>"; }).join("");
     return '<section class="panel"><h2>Le lot · ' + esc(label) + "</h2>" +
       led("Quantité achetée et envoyée", fmt(t.shipped)) + led("Prix d\'achat moyen par article", money(avgBuy)) + led("Transport payé", money(t.transport)) + led("Autres frais d\'arrivée", money(t.arrival)) +
       led("Coût du lot à l\'arrivée", money(t.cost), "", "sub") + led("Coût de revient par article", money(t.avgCost), "", "soft") + "</section>" +
-      '<section class="panel result"><div class="bigline"><span class="eyebrow">Marge · ' + esc(label) + '</span><span class="big ' + cls(t.profit) + '">' + money(t.profit) + '</span><span class="muted small">Ventes − coût des articles vendus, avant les dépenses de campagne et les autres dépenses</span></div>' +
+      '<section class="panel result"><div class="bigline"><span class="eyebrow">Bénéfice net · ' + esc(label) + '</span><span class="big ' + cls(t.profit) + '">' + money(t.profit) + '</span><span class="muted small">Ventes − coût des articles vendus − dépenses de ce produit</span></div>' +
       '<div class="pair">' + statTile("Chiffre d\'affaires", money(t.revenue), fmt(t.sold) + " vendus") + statTile("Prix de vente moyen", t.sold > 0 ? money(avgPrice) : "—", "Par article vendu") +
-      statTile("Taux de marge", t.revenue > 0 ? pct(t.margin) : "—", "Sur le chiffre d\'affaires") + statTile("Valeur du stock restant", money(t.stockValue), fmt(t.remaining) + " restants, au coût") + "</div>" +
-      '<div class="rule"></div><div class="led plain"><span class="eyebrow">Stock vendu</span><b>' + fmt(t.sold) + " vendus sur " + fmt(t.shipped) + " · reste " + fmt(t.remaining) + '</b></div><div class="bar"><i style="width:' + pctSold + '%;background:var(--accent)"></i></div></section>';
+      statTile("Dépenses du produit", money(t.expenses), "Campagnes : " + money(t.campaigns) + " · Autres : " + money(t.others)) +
+      statTile("Taux de marge", t.revenue > 0 ? pct(t.margin) : "—", "Bénéfice sur le chiffre d\'affaires") + statTile("Valeur du stock restant", money(t.stockValue), fmt(t.remaining) + " restants, au coût") + "</div>" +
+      '<div class="rule"></div><div class="led plain"><span class="eyebrow">Stock vendu</span><b>' + fmt(t.sold) + " vendus sur " + fmt(t.shipped) + " · reste " + fmt(t.remaining) + '</b></div><div class="bar"><i style="width:' + pctSold + '%;background:var(--accent)"></i></div>' +
+      '<div class="eyebrow">Où part l\'argent</div><div class="bar">' + segs + '</div><div class="legend">' + legend + '</div><div class="led sub topline"><span>Total des dépenses</span><b>' + money(out) + "</b></div></section>";
+  }
+  function agentExpPanel(pid) {
+    return '<section class="panel"><h2>' + ico("wallet") + 'Autre dépense</h2><div class="hint">Une dépense faite avec l\'argent de tes ventes, quand le propriétaire te le demande. Elle est retirée de ce que tu dois verser. Seul le propriétaire peut la retirer.</div><form data-form="agentexp" class="fields" novalidate><input type="hidden" name="product_id" value="' + esc(pid || "") + '">' +
+      '<div class="field"><label for="x-date">Date</label><input id="x-date" name="date" type="date" value="' + today() + '"></div>' +
+      '<div class="field"><label for="x-amount">Montant dépensé (FCFA)</label><input id="x-amount" name="amount" type="number" inputmode="decimal" min="1" step="any" required></div>' +
+      '<div class="field wide"><label for="x-motif">Motif de la dépense</label><input id="x-motif" name="motif" type="text" autocomplete="off" placeholder="Ex : transport, repas, emballage" required></div>' +
+      '<div class="field wide"><button class="primary" type="submit"' + (S.busy ? " disabled" : "") + ">Enregistrer la dépense</button></div></form></section>";
   }
   function agentProductView(d, pid, me) {
     var dv = filterProduct(d, pid), a = agg(dv, [me]), pname = prodName(d, pid), rem = a.shipped - a.sold;
@@ -476,6 +488,7 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
     return "<main>" + header() + ptabBar(d) +
       '<section class="panel result"><div class="bigline"><span class="eyebrow">Stock restant · ' + esc(pname) + '</span><span class="big ' + (rem < 0 ? "neg" : "") + '">' + fmt(rem) + '</span><span class="muted small">' + fmt(a.shipped) + " reçus · " + fmt(a.sold) + " vendus</span></div>" +
       '<div class="pair">' + statTile("Mes ventes", money(a.revenue), fmt(a.sold) + " vendus") + statTile("Prix de vente moyen", a.sold > 0 ? money(a.revenue / a.sold) : "—", "Par article vendu") + "</div></section>" +
+      (agg(d, [me]).shipped > 0 ? actionTiles(["other"]) + (S.action === "other" ? agentExpPanel(pid) : "") : "") +
       form + salesChart(dv, [{ id: me, name: "Mes ventes" }], "Évolution de mes ventes · " + pname) +
       '<section class="panel"><h2>Mes dernières ventes · ' + esc(pname) + '</h2>' + tableWrap("<th>Jour</th><th>Qté</th><th>Montant</th><th>Client</th>", rows || emptyRow(4, "Aucune vente."), "", 400) + "</section>" +
       '<section class="panel"><h2>Stock reçu · ' + esc(pname) + '</h2>' + tableWrap("<th>Jour</th><th>Reçus</th>", ship || emptyRow(2, "Aucun envoi."), "", 0) + "</section>" + footer() + "</main>";
@@ -510,11 +523,7 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
     var firstRem = plist.length ? (avail[0] ? byP[avail[0].id].shipped - byP[avail[0].id].sold : 0) : a.remaining;
     var prodField = plist.length ? (avail.length > 1 ? '<div class="field"><label for="s-prod">Produit</label><select id="s-prod" name="product_id">' + avail.map(function (p) { var o = byP[p.id]; return '<option value="' + esc(p.id) + '" data-rem="' + (o.shipped - o.sold) + '">' + esc(p.name) + " (" + fmt(o.shipped - o.sold) + " en stock)</option>"; }).join("") + "</select></div>" : avail.length ? '<input type="hidden" name="product_id" value="' + esc(avail[0].id) + '"><div class="field"><label>Produit</label><div class="static">' + esc(avail[0].name) + "</div></div>" : "") : "";
     var stockByProd = plist.length > 1 ? '<section class="panel"><h2>Mon stock par produit</h2>' + tableWrap("<th>Produit</th><th>Reçus</th><th>Vendus</th><th>Restants</th>", plist.filter(function (p) { return byP[p.id]; }).map(function (p) { var o = byP[p.id]; return '<tr><td class="txt">' + esc(p.name) + "</td><td>" + fmt(o.shipped) + "</td><td>" + fmt(o.sold) + "</td><td>" + fmt(o.shipped - o.sold) + "</td></tr>"; }).join("") || emptyRow(4, "Aucun stock."), "", 0) + "</section>" : "";
-    var agentPanel = (S.action === "other" && !noStock) ? '<section class="panel"><h2>' + ico("wallet") + 'Autre dépense</h2><div class="hint">Une dépense faite avec l\'argent de tes ventes, quand le propriétaire te le demande. Elle est retirée de ce que tu dois verser. Seul le propriétaire peut la retirer.</div><form data-form="agentexp" class="fields" novalidate>' +
-      '<div class="field"><label for="x-date">Date</label><input id="x-date" name="date" type="date" value="' + today() + '"></div>' +
-      '<div class="field"><label for="x-amount">Montant dépensé (FCFA)</label><input id="x-amount" name="amount" type="number" inputmode="decimal" min="1" step="any" required></div>' +
-      '<div class="field wide"><label for="x-motif">Motif de la dépense</label><input id="x-motif" name="motif" type="text" autocomplete="off" placeholder="Ex : transport, repas, emballage" required></div>' +
-      '<div class="field wide"><button class="primary" type="submit"' + (S.busy ? " disabled" : "") + ">Enregistrer la dépense</button></div></form></section>" : "";
+    var agentPanel = (S.action === "other" && !noStock) ? agentExpPanel() : "";
     return '<main>' + header() + atabs +
       '<section class="panel result"><div class="bigline"><span class="eyebrow">Stock restant</span><span class="big ' + (a.remaining < 0 ? "neg" : "") + '">' + fmt(a.remaining) + '</span><span class="muted small">' + fmt(a.shipped) + " reçus · " + fmt(a.sold) + " vendus</span></div>" +
       '<div class="pair">' + statTile("Total à me verser", money(a.revenue), "Somme de tes ventes") + statTile("Déjà versé", money(a.remitted)) + (a.spent > 0 ? statTile("Dépenses payées", money(a.spent), "Prises sur ta recette") : "") + statTile("Reste à verser", money(a.toRemit), "", a.toRemit > 0 ? "warn" : "pos") + "</div></section>" +
@@ -786,14 +795,14 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
       '<div class="field wide"><label for="f2-amount">Montant reçu (FCFA)</label><input id="f2-amount" name="amount" type="number" inputmode="decimal" min="1" step="any" required></div>' +
       '<div class="field wide"><button class="primary" type="submit">Enregistrer le versement</button></div></form></section>'
     );
-    var otherPanel = '<section class="panel"><h2>' + ico("wallet") + 'Autre dépense</h2><div class="hint">Dépense payée par un agent avec l\'argent de sa recette. Elle est retirée de ce qu\'il doit verser.</div><form data-form="ownerexp" class="fields" novalidate><input type="hidden" name="country" value="' + esc(country) + '">' +
+    var otherPanel = '<section class="panel"><h2>' + ico("wallet") + 'Autre dépense</h2><div class="hint">Dépense payée par un agent avec l\'argent de sa recette. Elle est retirée de ce qu\'il doit verser.</div><form data-form="ownerexp" class="fields" novalidate><input type="hidden" name="country" value="' + esc(country) + '"><input type="hidden" name="product_id" value="' + esc(curP(d)) + '">' +
       '<div class="field"><label for="f4-agent">Agent qui a payé</label><select id="f4-agent" name="agent_id">' + agentOptions(agents) + "</select></div>" +
       '<div class="field"><label for="f4-date">Date</label><input id="f4-date" name="date" type="date" value="' + today() + '"></div>' +
       '<div class="field wide"><label for="f4-amount">Montant dépensé (FCFA)</label><input id="f4-amount" name="amount" type="number" inputmode="decimal" min="1" step="any" required></div>' +
       '<div class="field wide"><label for="f4-motif">Motif de la dépense</label><input id="f4-motif" name="motif" type="text" autocomplete="off" placeholder="Ex : transport, repas, emballage" required></div>' +
       '<div class="field wide"><button class="primary" type="submit">Enregistrer la dépense</button></div></form></section>';
     var noAgent = '<section class="panel"><div class="muted">Aucun agent dans ce pays pour le moment.</div></section>';
-    var expPanel = '<section class="panel"><h2>' + ico("social") + 'Ajouter une dépense de campagne</h2><form data-form="expense" class="fields" novalidate><input type="hidden" name="country" value="' + esc(country) + '">' +
+    var expPanel = '<section class="panel"><h2>' + ico("social") + 'Ajouter une dépense de campagne</h2><form data-form="expense" class="fields" novalidate><input type="hidden" name="country" value="' + esc(country) + '"><input type="hidden" name="product_id" value="' + esc(curP(d)) + '">' +
       '<div class="field"><label for="f3-kind">Type de dépense</label><select id="f3-kind" name="kind"><option value="campagne">Campagne réseaux sociaux</option><option value="autre">Autre dépense (payée par moi)</option></select></div>' +
       '<div class="field"><label for="f3-label">Description</label><input id="f3-label" name="label" type="text" value="TikTok" required></div>' +
       '<div class="field"><label for="f3-date">Date</label><input id="f3-date" name="date" type="date" value="' + today() + '"></div>' +
@@ -814,9 +823,13 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
       var pShip = dp.shipments.filter(function (s) { return ids[s.agent_id]; }).slice(0, 20).map(function (s) {
         return "<tr><td>" + dateFr(s.ship_date) + '</td><td class="txt">' + esc(nameOf[s.agent_id] || "") + "</td><td>" + fmt(s.qty) + "</td><td>" + fmt(s.unit_cost) + "</td><td>" + fmt(s.transport) + "</td><td>" + fmt(s.arrival_fees) + "</td><td>" + delBtn("shipments", s.id, "cet envoi") + "</td></tr>";
       }).join("");
+      var pExp = dp.expenses.filter(function (e) { return e.agent_id ? ids[e.agent_id] : e.country === country; }).slice(0, 30).map(function (e) {
+        return "<tr><td>" + dateFr(e.exp_date) + '</td><td class="txt">' + (e.agent_id ? "Payée par " + esc(nameOf[e.agent_id] || "l\'agent") : e.kind === "autre" ? "Autre" : "Campagne") + '</td><td class="txt">' + esc(e.label) + "</td><td>" + fmt(e.amount) + "</td><td>" + delBtn("expenses", e.id, "cette dépense") + "</td></tr>";
+      }).join("");
       return ptabBar(d) + '<section class="panel"><h2>Agents · ' + esc(country) + " · " + esc(pname) + '</h2>' + (pCards ? '<div class="rows">' + pCards + "</div>" : '<div class="muted small">Aucun agent.</div>') + "</section>" +
         productLot(pst.total, country + " · " + pname) + salesChart(dp, agents, "Évolution des ventes · " + country + " · " + pname) +
-        actionTiles(["shipment"]) + (S.action === "shipment" ? (agents.length ? shipPanel : noAgent) : "") +
+        actionTiles(["shipment", "remittance", "expense", "other"]) + (S.action === "shipment" ? (agents.length ? shipPanel : noAgent) : S.action === "remittance" ? (agents.length ? remPanel : noAgent) : S.action === "expense" ? expPanel : S.action === "other" ? (agents.length ? otherPanel : noAgent) : "") +
+        '<section class="panel"><h2>Dépenses · ' + esc(pname) + '</h2><div class="hint">Les dépenses (campagne ou autre dépense) notées dans l\'onglet de ce produit.</div>' + tableWrap("<th>Jour</th><th>Type</th><th>Description</th><th>Montant</th><th></th>", pExp || emptyRow(5, "Aucune dépense pour ce produit."), "", 500) + "</section>" +
         '<section class="panel"><h2>Dernières ventes · ' + esc(pname) + '</h2>' + tableWrap("<th>Jour</th><th>Agent</th><th>Qté</th><th>Montant</th><th>Client</th><th></th>", pSale || emptyRow(6, "Aucune vente."), "", 560) + "</section>" +
         '<section class="panel"><h2>Stock envoyé · ' + esc(pname) + '</h2>' + tableWrap("<th>Jour</th><th>Agent</th><th>Qté</th><th>Achat/unité</th><th>Transport</th><th>Arrivée</th><th></th>", pShip || emptyRow(7, "Aucun envoi."), "", 620) + "</section>";
     }
@@ -855,13 +868,15 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
     var head = list.length ? '<section class="panel"><h2>Vue d\'ensemble des produits</h2><div class="hint">Part de chaque produit dans les ventes, tous pays.</div><div class="bar">' + segs + '</div><div class="legend">' + legend + "</div></section>" : "";
     var cards = list.map(function (p, i) {
       var o = tot[p.id] || { shipped: 0, sold: 0, revenue: 0, cogs: 0 }, m = o.revenue - o.cogs;
+      var pex = 0; d.expenses.forEach(function (e) { if (e.product_id === p.id) pex += num(e.amount); });
       var rows = A.present.map(function (c) {
         var q = productStats(d, idsOf[c])[p.id] || { shipped: 0, sold: 0, revenue: 0 };
         return '<tr><td class="txt">' + esc(c) + "</td><td>" + fmt(q.shipped) + "</td><td>" + fmt(q.sold) + "</td><td>" + fmt(q.shipped - q.sold) + "</td><td>" + fmt(q.revenue) + "</td></tr>";
       }).join("");
       return '<section class="panel"><h2><span class="sw" style="background:' + PCOL[i % 4] + '"></span> ' + esc(p.name) + '</h2><div class="mini-grid">' +
         mini("Envoyés", fmt(o.shipped)) + mini("Vendus", fmt(o.sold)) + mini("Restants", fmt(o.shipped - o.sold)) + mini("Ventes (FCFA)", fmt(o.revenue)) +
-        mini("Prix moyen (FCFA)", o.sold > 0 ? fmt(o.revenue / o.sold) : "—") + mini("Marge (FCFA)", fmt(m), m < 0 ? "neg" : "") + "</div>" +
+        mini("Prix moyen (FCFA)", o.sold > 0 ? fmt(o.revenue / o.sold) : "—") + mini("Marge (FCFA)", fmt(m), m < 0 ? "neg" : "") +
+        mini("Dépenses (FCFA)", fmt(pex)) + mini("Bénéfice net (FCFA)", fmt(m - pex), m - pex < 0 ? "neg" : "") + "</div>" +
         '<h3>Par pays</h3>' + tableWrap("<th>Pays</th><th>Envoyés</th><th>Vendus</th><th>Restants</th><th>Ventes</th>", rows || emptyRow(5, "Aucun agent."), "", 380) + "</section>";
     }).join("");
     return head + cards + productManage(d);
@@ -1059,7 +1074,8 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
       if (!xagent || !xcountry) { toast("Agent ou pays introuvable.", true); return; }
       if (kind === "agentexp" && agg(S.data || { shipments: [], sales: [], remittances: [] }, [xagent]).shipped <= 0) { toast("Tu n'as pas encore reçu de stock.", true); return; }
       S.action = null;
-      run(api.insert("expenses", { country: xcountry, agent_id: xagent, exp_date: v("date") || today(), label: xm, kind: "autre", amount: xa }), "Dépense enregistrée.");
+      var xrow = { country: xcountry, agent_id: xagent, exp_date: v("date") || today(), label: xm, kind: "autre", amount: xa }; if (v("product_id")) xrow.product_id = v("product_id");
+      run(api.insert("expenses", xrow), "Dépense enregistrée.");
       return;
     }
     if (kind === "sale") {
@@ -1086,7 +1102,8 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
       var ea = num(v("amount"));
       if (ea <= 0 || !v("label")) { toast("Indique la description et le montant.", true); return; }
       S.action = null;
-      run(api.insert("expenses", { country: v("country"), exp_date: v("date") || today(), label: v("label"), kind: v("kind") === "autre" ? "autre" : "campagne", amount: ea }), "Dépense enregistrée.");
+      var erow = { country: v("country"), exp_date: v("date") || today(), label: v("label"), kind: v("kind") === "autre" ? "autre" : "campagne", amount: ea }; if (v("product_id")) erow.product_id = v("product_id");
+      run(api.insert("expenses", erow), "Dépense enregistrée.");
     }
   });
 
