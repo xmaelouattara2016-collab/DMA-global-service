@@ -163,6 +163,9 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
 .seg .ghost.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .subtabs { margin-top: -4px; }
 .subtabs .tab { font-size: 14px; }
+.dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #F97316; vertical-align: middle; margin-left: 4px; box-shadow: 0 0 0 2px var(--card, #fff); animation: dotpulse 1.8s ease-in-out infinite; }
+@keyframes dotpulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.25); } }
+@media (prefers-reduced-motion: reduce) { .dot { animation: none; } }
 </style>
 </head>
 <body>
@@ -401,6 +404,7 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
     return namePanel() + pwPanel() +
       '<footer class="foot"><div class="lotbar">' + themeBtn() + '<button type="button" data-act="refresh">Actualiser</button>' +
       (owner ? '<button type="button" class="ghost" data-act="name">Modifier mon nom</button>' : "") +
+      (owner && typeof Notification !== "undefined" ? '<button type="button" class="ghost" data-act="notif">' + (Notification.permission === "granted" ? "🔔 Notifications activées" : Notification.permission === "denied" ? "🔕 Notifications bloquées" : "🔔 Activer les notifications") + "</button>" : "") +
       '<button type="button" class="ghost" data-act="pw">Mot de passe</button><button type="button" class="ghost" data-act="logout">Déconnexion</button></div>' +
       (S.updated ? '<span class="hint">Mis à jour à ' + S.updated + "</span>" : "") + "</footer>";
   }
@@ -440,9 +444,10 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
   function ptabBar(d) {
     var l = prodList(d); if (l.length < 2) return "";
     var cur = curP(d);
+    var UM = S.profile && S.profile.role === "owner" && COUNTRIES.indexOf(S.tab) >= 0 ? unseenMap(d) : {};
     return '<nav class="tabs subtabs" role="tablist" aria-label="Produits">' + [{ id: "", name: "Tous les produits" }].concat(l).map(function (p) {
-      var on = cur === p.id;
-      return '<button type="button" role="tab" aria-selected="' + on + '" class="tab' + (on ? " on" : "") + '" data-act="ptab" data-p="' + esc(p.id) + '">' + esc(p.name) + "</button>";
+      var on = cur === p.id, nd = p.id && UM[S.tab + "|" + p.id] ? dot() : "";
+      return '<button type="button" role="tab" aria-selected="' + on + '" class="tab' + (on ? " on" : "") + '" data-act="ptab" data-p="' + esc(p.id) + '">' + esc(p.name) + nd + "</button>";
     }).join("") + "</nav>";
   }
   function filterProduct(d, pid) {
@@ -555,8 +560,72 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
     return '<nav class="tabs" role="tablist" aria-label="Pays">' + t.list.map(function (k) {
       var label = k === "total" ? "Total" : k === "agents" ? "Agents" : k === "details" ? "Détails" : k === "produits" ? "Produits" : k;
       var badge = k === "agents" && t.pending ? ' <span class="badge">' + t.pending + "</span>" : "";
+      if (COUNTRIES.indexOf(k) >= 0 && S.tab !== k) { var UM = unseenMap(S.data); if (Object.keys(UM).some(function (x) { return x.split("|")[0] === k; })) badge = dot(); }
       return '<button type="button" role="tab" aria-selected="' + (S.tab === k) + '" class="tab' + (S.tab === k ? " on" : "") + '" data-act="tab" data-tab="' + esc(k) + '">' + esc(label) + badge + "</button>";
     }).join("") + "</nav>";
+  }
+
+  /* ---------- nouvelles ventes : point orange + notification ---------- */
+  var SEEN_KEY = "gs-seen-v1", INIT_KEY = "gs-seen-init-v1";
+  function seenMap() { try { return JSON.parse(lsGet(SEEN_KEY) || "{}") || {}; } catch (e) { return {}; } }
+  function initTs() { var v = lsGet(INIT_KEY); if (!v) { v = new Date().toISOString(); lsSet(INIT_KEY, v); } return v; }
+  function saleTs(s) { return s.created_at || s.sale_date || ""; }
+  function saleKey(d, s) {
+    var c = ""; (d.profiles || []).forEach(function (p) { if (p.id === s.agent_id) c = p.country || ""; });
+    return c + "|" + (s.product_id || "_");
+  }
+  function unseenMap(d) {
+    var out = {}; if (!d || !S.profile || S.profile.role !== "owner") return out;
+    var seen = seenMap(), init = initTs();
+    (d.sales || []).forEach(function (s) {
+      var k = saleKey(d, s), base = seen[k] || init;
+      if (saleTs(s) > base) out[k] = (out[k] || 0) + 1;
+    });
+    return out;
+  }
+  function markSeen(d, country, pid) {
+    var seen = seenMap(), init = initTs(), ch = false;
+    (d.sales || []).forEach(function (s) {
+      var k = saleKey(d, s), kc = k.split("|");
+      if (kc[0] !== country || (pid && kc[1] !== pid)) return;
+      var t = saleTs(s); if (t > (seen[k] || init)) { seen[k] = t; ch = true; }
+    });
+    if (ch) lsSet(SEEN_KEY, JSON.stringify(seen));
+  }
+  function markViewing(d) {
+    if (!S.profile || S.profile.role !== "owner" || COUNTRIES.indexOf(S.tab) < 0) return;
+    if (prodList(d).length < 2) markSeen(d, S.tab); else if (curP(d)) markSeen(d, S.tab, curP(d));
+  }
+  function dot() { return ' <span class="dot" role="img" aria-label="Nouvelle vente"></span>'; }
+  function notifyAllowed() { return typeof Notification !== "undefined" && Notification.permission === "granted"; }
+  function notifySales(d, fresh) {
+    var nameOf = {}; (d.profiles || []).forEach(function (p) { nameOf[p.id] = p.name || p.email; });
+    var title, body;
+    if (fresh.length === 1) {
+      var s0 = fresh[0], pn = prodName(d, s0.product_id);
+      title = "Nouvelle vente"; body = (nameOf[s0.agent_id] || "Un agent") + " · " + fmt(s0.qty) + (pn ? " " + pn : "") + " · " + money(s0.amount);
+    } else {
+      var tot = 0; fresh.forEach(function (s) { tot += num(s.amount); });
+      title = fresh.length + " nouvelles ventes"; body = "Total : " + money(tot);
+    }
+    S.saleToastAt = Date.now();
+    toast("🟠 " + title + " — " + body);
+    if (notifyAllowed()) {
+      try {
+        var opts = { body: body, icon: "icon-192.png", tag: "gs-sale" };
+        if (navigator.serviceWorker && navigator.serviceWorker.getRegistration) navigator.serviceWorker.getRegistration().then(function (r) { if (r && r.showNotification) return r.showNotification(title, opts); new Notification(title, opts); }).catch(function () {});
+        else new Notification(title, opts);
+      } catch (e) {}
+    }
+  }
+  function checkNewSales(d) {
+    if (!S.profile || S.profile.role !== "owner") return;
+    var ids = {}; d.sales.forEach(function (x) { ids[x.id] = 1; });
+    if (S.knownSales) {
+      var fresh = d.sales.filter(function (x) { return !S.knownSales[x.id]; });
+      if (fresh.length) notifySales(d, fresh);
+    }
+    S.knownSales = ids;
   }
 
   function presentCountries(d) { return ownerTabs(d).list.filter(function (k) { return COUNTRIES.indexOf(k) >= 0; }); }
@@ -910,6 +979,7 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
     var d = S.data || { profiles: [], shipments: [], sales: [], remittances: [], expenses: [] };
     var t = ownerTabs(d);
     if (t.list.indexOf(S.tab) < 0) S.tab = "total";
+    markViewing(d);
     var body = S.tab === "total" ? ownerTotal(d) : S.tab === "details" ? ownerDetails(d) : S.tab === "agents" ? ownerAgents(d) : S.tab === "produits" ? ownerProducts(d) : ownerCountry(d, S.tab);
     return "<main>" + header() + tabBar(t) + body + footer() + "</main>";
   }
@@ -944,7 +1014,7 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
     if (!S.session) return Promise.resolve();
     return loadProfile().then(function () {
       if (!S.profile || S.profile.role === "pending") return null;
-      return (S.profile.role === "owner" ? api.loadOwner() : api.loadAgent()).then(function (d) { S.data = d; S.loadError = ""; }, function (e) { S.loadError = errText(e); if (force) toast(errText(e), true); });
+      return (S.profile.role === "owner" ? api.loadOwner() : api.loadAgent()).then(function (d) { S.data = d; S.loadError = ""; checkNewSales(d); }, function (e) { S.loadError = errText(e); if (force) toast(errText(e), true); });
     }).then(function () {
       var n = new Date(); S.updated = String(n.getHours()).padStart(2, "0") + ":" + String(n.getMinutes()).padStart(2, "0");
       render(force);
@@ -952,7 +1022,7 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
     });
   }
   function startSession(s) {
-    S.session = s; S.profile = null; S.data = null; S.loading = false;
+    S.session = s; S.profile = null; S.data = null; S.loading = false; S.knownSales = null;
     clearInterval(pollTimer);
     if (!s) { render(true); return; }
     render(true);
@@ -976,7 +1046,7 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
     var act = b.getAttribute("data-act"), id = b.getAttribute("data-id");
     if (act === "action") { var kd = b.getAttribute("data-kind"); S.action = S.action === kd ? null : kd; render(true); var pn = $app.querySelector(".tiles + .panel"); if (pn) pn.scrollIntoView({ block: "nearest", behavior: "smooth" }); }
     else if (act === "tab") { S.tab = b.getAttribute("data-tab"); S.action = null; lsSet(TAB_KEY, S.tab); render(true); window.scrollTo(0, 0); }
-    else if (act === "refresh") { refresh(true).then(function () { toast("Mis à jour."); }); }
+    else if (act === "refresh") { refresh(true).then(function () { if (!S.saleToastAt || Date.now() - S.saleToastAt > 2500) toast("Mis à jour."); }); }
     else if (act === "logout") { api.signOut().then(function () { liveOn = false; startSession(null); }); }
     else if (act === "year") {
       var dr = parseInt(b.getAttribute("data-dir"), 10), nw = new Date();
@@ -997,6 +1067,12 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
       var pinp = $app.querySelector('input[data-pname="' + id + '"]'), pv = pinp ? pinp.value.trim() : "";
       if (!pv) { toast("Écris un nom de produit.", true); return; }
       run(api.updateRow("products", id, { name: pv }), "Produit renommé.");
+    }
+    else if (act === "notif") {
+      if (typeof Notification === "undefined") { toast("Les notifications ne sont pas disponibles sur ce téléphone.", true); }
+      else if (Notification.permission === "granted") { toast("Les notifications sont déjà activées."); }
+      else if (Notification.permission === "denied") { toast("Notifications bloquées : autorise-les dans les réglages du navigateur pour ce site.", true); }
+      else { Notification.requestPermission().then(function () { render(true); if (Notification.permission === "granted") toast("Notifications activées."); }); }
     }
     else if (act === "ptab") { S.ptab = b.getAttribute("data-p") || ""; S.action = null; render(true); window.scrollTo(0, 0); }
     else if (act === "authmode") { S.authMode = S.authMode === "login" ? "signup" : "login"; S.authMsg = ""; S.authOk = ""; render(true); }
