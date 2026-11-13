@@ -1,4 +1,4 @@
-var CACHE = "gs-v5";
+var CACHE = "gs-v6";
 self.addEventListener("install", function (e) { self.skipWaiting(); });
 self.addEventListener("activate", function (e) {
   e.waitUntil(caches.keys().then(function (keys) {
@@ -14,4 +14,12 @@ self.addEventListener("fetch", function (e) {
       return res;
     }).catch(function () { return caches.match(req).then(function (r) { return r || caches.match("./"); }); })
   );
+});
+
+self.addEventListener("notificationclick", function (e) {
+  e.notification.close();
+  e.waitUntil(self.clients.matchAll({ type: "window", includeUncontrolled: true }).then(function (list) {
+    for (var i = 0; i < list.length; i++) { if ("focus" in list[i]) return list[i].focus(); }
+    return self.clients.openWindow("./");
+  }));
 });
