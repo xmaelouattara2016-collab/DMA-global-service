@@ -167,6 +167,13 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
 @keyframes dotpulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.25); } }
 @media (prefers-reduced-motion: reduce) { .dot { animation: none; } }
 .linkbtn { background: none; border: 0; padding: 10px 4px; color: var(--accent); font: inherit; font-weight: 600; text-decoration: underline; cursor: pointer; align-self: center; }
+.prows { margin-top: 4px; }
+.prow { display: flex; justify-content: space-between; gap: 12px; padding: 12px 2px; border-bottom: 1px solid var(--line); }
+.prow b { white-space: nowrap; }
+.prow.strong { border-bottom: 0; margin-top: 6px; padding: 14px 12px; border-radius: 12px; background: var(--accent); color: var(--accent-ink); font-size: 17px; }
+.point .seg { margin-bottom: 8px; }
+.point .pnav { justify-content: space-between; margin: 6px 0 10px; }
+.point .pnav b { min-width: 0; flex: 1; }
 </style>
 </head>
 <body>
@@ -502,6 +509,54 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
       '<div class="field wide"><label for="x-motif">Motif de la dépense</label><input id="x-motif" name="motif" type="text" autocomplete="off" placeholder="Ex : transport, repas, emballage" required></div>' +
       '<div class="field wide"><button class="primary" type="submit"' + (S.busy ? " disabled" : "") + ">Enregistrer la dépense</button></div></form></section>";
   }
+  /* ---------- "Le point" de l'agent (jour / semaine / mois) ---------- */
+  var DAYS_FR = ["dimanche", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi"];
+  function isoOf(dt) { return dt.getFullYear() + "-" + String(dt.getMonth() + 1).padStart(2, "0") + "-" + String(dt.getDate()).padStart(2, "0"); }
+  function parseIso(x) { var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(x || ""); return m ? new Date(+m[1], +m[2] - 1, +m[3]) : new Date(); }
+  function pointRange() {
+    var mode = S.pt || "day", ref = parseIso(S.ptRef || today()), a, b, label;
+    if (mode === "month") {
+      a = new Date(ref.getFullYear(), ref.getMonth(), 1); b = new Date(ref.getFullYear(), ref.getMonth() + 1, 0);
+      label = MONTHS_LONG[a.getMonth()].charAt(0).toUpperCase() + MONTHS_LONG[a.getMonth()].slice(1) + " " + a.getFullYear();
+    } else if (mode === "week") {
+      var off = (ref.getDay() + 6) % 7; a = new Date(ref.getFullYear(), ref.getMonth(), ref.getDate() - off); b = new Date(a.getFullYear(), a.getMonth(), a.getDate() + 6);
+      label = "Semaine du " + a.getDate() + " " + MONTHS_LONG[a.getMonth()] + " au " + b.getDate() + " " + MONTHS_LONG[b.getMonth()];
+    } else {
+      a = b = ref; label = DAYS_FR[ref.getDay()].charAt(0).toUpperCase() + DAYS_FR[ref.getDay()].slice(1) + " " + ref.getDate() + " " + MONTHS_LONG[ref.getMonth()];
+    }
+    return { mode: mode, from: isoOf(a), to: isoOf(b), label: label };
+  }
+  function agentPoint(d, me, pid) {
+    var R = pointRange(), within = function (x) { return x >= R.from && x <= R.to; }, before = function (x) { return x < R.from; };
+    var sold = 0, rev = 0, exp = 0, paid = 0, bal = 0;
+    d.sales.forEach(function (s) {
+      if (s.agent_id !== me || (pid && s.product_id !== pid)) return;
+      var dt = String(s.sale_date || "").slice(0, 10);
+      if (within(dt)) { sold += num(s.qty); rev += num(s.amount); } else if (before(dt)) bal += num(s.amount);
+    });
+    (d.expenses || []).forEach(function (e) {
+      if (e.agent_id !== me || (pid && e.product_id !== pid)) return;
+      var dt = String(e.exp_date || "").slice(0, 10);
+      if (within(dt)) exp += num(e.amount); else if (before(dt)) bal -= num(e.amount);
+    });
+    if (!pid) d.remittances.forEach(function (r) {
+      if (r.agent_id !== me) return;
+      var dt = String(r.paid_date || "").slice(0, 10);
+      if (within(dt)) paid += num(r.amount); else if (before(dt)) bal -= num(r.amount);
+    });
+    var due = rev - exp, rest = bal + due - paid;
+    var row = function (l, v, cl) { return '<div class="prow' + (cl ? " " + cl : "") + '"><span>' + l + "</span><b>" + v + "</b></div>"; };
+    var seg = '<div class="seg" role="group" aria-label="Période du point">' + [["day", "Jour"], ["week", "Semaine"], ["month", "Mois"]].map(function (m) {
+      return '<button type="button" class="ghost' + (R.mode === m[0] ? " on" : "") + '" data-act="ptmode" data-m="' + m[0] + '">' + m[1] + "</button>";
+    }).join("") + "</div>";
+    return '<section class="panel point"><h2>Le point' + (pid ? " · " + esc(prodName(d, pid)) : "") + '</h2>' + seg +
+      '<div class="pnav"><button type="button" class="ghost" data-act="ptnav" data-dir="-1" aria-label="Période précédente">‹</button><b>' + esc(R.label) + '</b><button type="button" class="ghost" data-act="ptnav" data-dir="1" aria-label="Période suivante">›</button></div>' +
+      '<div class="prows">' + row("Articles vendus", fmt(sold)) + row("Total des ventes", money(rev)) +
+      row("Dépenses payées avec la recette", money(exp)) + row("Revient au patron", money(due)) +
+      (pid ? "" : row("Déjà versé au patron", money(paid)) + row("Report avant cette période", money(bal)) + row("Reste à remettre", money(rest), "strong")) + "</div>" +
+      (pid ? '<div class="hint">Les versements ne sont pas séparés par produit : ton reste à remettre complet est dans « Tous les produits ».</div>' : "") + "</section>";
+  }
+
   function agentProductView(d, pid, me) {
     var dv = filterProduct(d, pid), a = agg(dv, [me]), pname = prodName(d, pid), rem = a.shipped - a.sold;
     var noStock = a.shipped <= 0, soldOut = !noStock && rem <= 0;
@@ -519,7 +574,7 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
       '<section class="panel result"><div class="bigline"><span class="eyebrow">Stock restant · ' + esc(pname) + '</span><span class="big ' + (rem < 0 ? "neg" : "") + '">' + fmt(rem) + '</span><span class="muted small">' + fmt(a.shipped) + " reçus · " + fmt(a.sold) + " vendus</span></div>" +
       '<div class="pair">' + statTile("Mes ventes", money(a.revenue), fmt(a.sold) + " vendus") + statTile("Prix de vente moyen", a.sold > 0 ? money(a.revenue / a.sold) : "—", "Par article vendu") + "</div></section>" +
       (agg(d, [me]).shipped > 0 ? actionTiles(["other"]) + (S.action === "other" ? agentExpPanel(pid) : "") : "") +
-      form + salesChart(dv, [{ id: me, name: "Mes ventes" }], "Évolution de mes ventes · " + pname) +
+      form + agentPoint(d, me, pid) + salesChart(dv, [{ id: me, name: "Mes ventes" }], "Évolution de mes ventes · " + pname) +
       '<section class="panel"><h2>Mes dernières ventes · ' + esc(pname) + '</h2>' + tableWrap("<th>Jour</th><th>Qté</th><th>Montant</th><th>Client</th>", rows || emptyRow(4, "Aucune vente."), "", 400) + "</section>" +
       '<section class="panel"><h2>Stock reçu · ' + esc(pname) + '</h2>' + tableWrap("<th>Jour</th><th>Reçus</th>", ship || emptyRow(2, "Aucun envoi."), "", 0) + "</section>" + footer() + "</main>";
   }
@@ -564,7 +619,7 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
       '<div class="field"><label for="s-amount">Montant à me verser (FCFA)</label><input id="s-amount" name="amount" type="number" inputmode="decimal" min="0" step="any" required></div>' +
       '<div class="field"><label for="s-place">Client et ville (facultatif)</label><input id="s-place" name="place" type="text" autocomplete="off"></div>' +
       '<div class="field wide"><button class="primary" type="submit"' + (S.busy ? " disabled" : "") + ">Enregistrer la vente</button></div></form></section>") +
-      stockByProd + salesChart(d, [{ id: me, name: "Mes ventes" }], "Évolution de mes ventes") +
+      stockByProd + (S.profile && S.profile.role === "agent" ? agentPoint(d, me, "") : "") + salesChart(d, [{ id: me, name: "Mes ventes" }], "Évolution de mes ventes") +
       '<section class="panel"><h2>Mes dernières ventes</h2><div class="hint">Une vente enregistrée ne peut être retirée que par le propriétaire. En cas d\'erreur, préviens-le.</div>' +
       tableWrap("<th>Jour</th><th>Qté</th><th>Montant</th><th>Client</th>", rows || emptyRow(4, "Aucune vente pour le moment."), "", 400) + "</section>" +
       '<section class="panel"><h2>Mes autres dépenses par jour</h2><div class="hint">Dépenses payées avec ta recette, avec les motifs. Elles sont retirées de la somme à verser.</div>' + tableWrap("<th>Jour</th><th>Total du jour</th><th>Motifs</th>", dayMineRows || emptyRow(3, "Aucune dépense."), "", 420) + "</section>" +
@@ -1099,6 +1154,12 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
       else if (Notification.permission === "granted") { toast("Les notifications sont déjà activées."); }
       else if (Notification.permission === "denied") { toast("Notifications bloquées : autorise-les dans les réglages du navigateur pour ce site.", true); }
       else { Notification.requestPermission().then(function () { render(true); if (Notification.permission === "granted") toast("Notifications activées."); }); }
+    }
+    else if (act === "ptmode") { S.pt = b.getAttribute("data-m"); render(true); }
+    else if (act === "ptnav") {
+      var pr = pointRange(), dr2 = parseInt(b.getAttribute("data-dir"), 10), rf = parseIso(S.ptRef || today());
+      if (pr.mode === "month") rf = new Date(rf.getFullYear(), rf.getMonth() + dr2, 1); else rf = new Date(rf.getFullYear(), rf.getMonth(), rf.getDate() + dr2 * (pr.mode === "week" ? 7 : 1));
+      S.ptRef = isoOf(rf); render(true);
     }
     else if (act === "ptab") { S.ptab = b.getAttribute("data-p") || ""; S.action = null; render(true); window.scrollTo(0, 0); }
     else if (act === "forgot") { S.authMode = "forgot"; S.authMsg = ""; S.authOk = ""; render(true); }
