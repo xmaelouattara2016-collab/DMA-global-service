@@ -177,6 +177,11 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
 .calc { border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px; background: var(--field); }
 .calc .prow:first-child { padding-top: 6px; }
 .prow.strong.bad { background: #B42318; color: #fff; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.chip { border: 1px solid var(--line); background: var(--card, #fff); color: inherit; border-radius: 999px; padding: 10px 16px; font: inherit; font-weight: 600; cursor: pointer; min-height: 44px; }
+.chip.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.chipinput { margin-top: 8px; }
+.chipinput.hide { display: none; }
 </style>
 </head>
 <body>
@@ -513,32 +518,42 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
       '<div class="field wide"><button class="primary" type="submit"' + (S.busy ? " disabled" : "") + ">Enregistrer la dépense</button></div></form></section>";
   }
   /* ---------- vente avec calcul automatique ---------- */
-  var SALE_KEY = "gs-salepref-v1";
+  var SALE_KEY = "gs-salepref-v1", DELIV_BASE = 1500, SUPP_PRESETS = ["0", "500", "1000"], SHARE_PRESETS = ["1000", "2000"];
   function salePref() { try { return JSON.parse(lsGet(SALE_KEY) || "{}") || {}; } catch (e) { return {}; } }
-  function calcSale(q, unit, deliv, supp, share) {
-    q = Math.max(0, num(q)); unit = Math.max(0, num(unit)); deliv = Math.max(0, num(deliv)); supp = Math.max(0, num(supp)); share = Math.max(0, num(share));
-    var gross = q * unit + supp, delivery = q * deliv + supp, part = q * share, net = gross - delivery - part;
-    return { gross: gross, delivery: delivery, share: part, net: net };
+  /* Le prix du colis est le prix de toute la vente (il varie avec les promotions).
+     La livraison de base et la part de l'agent sont retirées de ce prix.
+     Le supplément est payé en plus par le client : il va aux livreurs, sans toucher au prix du colis. */
+  function calcSale(price, supp, part) {
+    price = Math.max(0, num(price)); supp = Math.max(0, num(supp)); part = Math.max(0, num(part));
+    var gross = price + supp, delivery = DELIV_BASE + supp, net = price - DELIV_BASE - part;
+    return { price: price, gross: gross, delivery: delivery, share: part, net: net };
+  }
+  function chipGroup(g, presets, cur, label, unitWord) {
+    var isPreset = presets.indexOf(cur) >= 0;
+    return '<div class="field wide"><label>' + label + '</label><div class="chips" role="group">' + presets.map(function (p) {
+      return '<button type="button" class="chip' + (cur === p ? " on" : "") + '" data-act="chip" data-g="' + g + '" data-v="' + p + '">' + (p === "0" ? "Aucun" : fmt(+p) + " F") + "</button>";
+    }).join("") + '<button type="button" class="chip' + (isPreset ? "" : " on") + '" data-act="chip" data-g="' + g + '" data-v="other">Autre</button></div>' +
+      '<input id="s-' + g + '" name="' + g + '" type="number" inputmode="decimal" min="0" step="any" value="' + esc(cur) + '" class="chipinput' + (isPreset ? " hide" : "") + '" aria-label="' + esc(label) + ' (montant)"></div>';
   }
   function saleFields(maxQty) {
-    var pf = salePref();
+    var pf = salePref(), part = S.shareV != null ? S.shareV : (pf.share != null && pf.share !== "" ? String(pf.share) : "1000"), supp = S.suppV != null ? S.suppV : "0";
     return '<div class="field"><label for="s-date">Date</label><input id="s-date" name="date" type="date" value="' + today() + '" required></div>' +
-      '<div class="field"><label for="s-qty">Quantité vendue</label><input id="s-qty" name="qty" type="number" inputmode="numeric" min="1" max="' + Math.max(0, Math.floor(maxQty)) + '" step="1" required></div>' +
-      '<div class="field"><label for="s-unit">Prix du colis (FCFA, par article)</label><input id="s-unit" name="unit" type="number" inputmode="decimal" min="0" step="any" required></div>' +
+      '<div class="field"><label for="s-qty">Quantité vendue (nombre d\'articles)</label><input id="s-qty" name="qty" type="number" inputmode="numeric" min="1" max="' + Math.max(0, Math.floor(maxQty)) + '" step="1" required></div>' +
+      '<div class="field"><label for="s-unit">Prix du colis (FCFA, pour toute la vente)</label><input id="s-unit" name="unit" type="number" inputmode="decimal" min="0" step="any" required><div class="hint">La livraison (' + fmt(DELIV_BASE) + ' F) et ta part sont retirées automatiquement de ce prix.</div></div>' +
       '<div class="field"><label for="s-place">Client et ville (facultatif)</label><input id="s-place" name="place" type="text" autocomplete="off"></div>' +
-      '<div class="field"><label for="s-deliv">Livraison comprise dans le prix (FCFA, par article)</label><input id="s-deliv" name="deliv" type="number" inputmode="decimal" min="0" step="any" value="' + esc(pf.deliv || "") + '" placeholder="0"></div>' +
-      '<div class="field"><label for="s-supp">Supplément de livraison (le client paie en plus, FCFA)</label><input id="s-supp" name="supp" type="number" inputmode="decimal" min="0" step="any" placeholder="0"></div>' +
-      '<div class="field"><label for="s-share">Ma part sur cette vente (FCFA, par article)</label><input id="s-share" name="share" type="number" inputmode="decimal" min="0" step="any" value="' + esc(pf.share || "") + '" placeholder="0"></div>' +
+      chipGroup("supp", SUPP_PRESETS, supp, "Supplément de livraison (le client paie en plus, pour les villes éloignées)") +
+      chipGroup("share", SHARE_PRESETS, part, "Ma part sur cette vente") +
       '<div class="field wide"><div id="s-calc" class="calc" aria-live="polite"></div></div>';
   }
   function updateSaleCalc() {
     var box = document.getElementById("s-calc"); if (!box) return;
     var g = function (id) { var e = document.getElementById(id); return e ? e.value : ""; };
     if (!g("s-qty") || !g("s-unit")) { box.innerHTML = '<div class="muted small">Remplis la quantité et le prix du colis pour voir ce qui revient au patron.</div>'; return; }
-    var c = calcSale(g("s-qty"), g("s-unit"), g("s-deliv"), g("s-supp"), g("s-share"));
+    var c = calcSale(g("s-unit"), g("s-supp"), g("s-share"));
     var row = function (l, v) { return '<div class="prow"><span>' + l + "</span><b>" + v + "</b></div>"; };
-    box.innerHTML = row("Total des ventes", money(c.gross)) + row("Pour les livreurs", money(c.delivery)) + row("Ma part", money(c.share)) +
-      '<div class="prow strong' + (c.net < 0 ? " bad" : "") + '"><span>' + (c.net < 0 ? "Attention : trop élevé" : "À remettre au patron") + "</span><b>" + money(c.net) + "</b></div>";
+    box.innerHTML = row("Prix du colis", money(c.price)) + row("Supplément payé par le client", money(c.gross - c.price)) + row("Total des ventes", money(c.gross)) +
+      row("Pour les livreurs (livraison + supplément)", money(c.delivery)) + row("Ma part", money(c.share)) +
+      '<div class="prow strong' + (c.net < 0 ? " bad" : "") + '"><span>' + (c.net < 0 ? "Attention : prix trop bas" : "À remettre au patron") + "</span><b>" + money(c.net) + "</b></div>";
   }
   function canUndo(s) { var t = Date.parse(s.created_at || ""); return isFinite(t) && Date.now() - t < 24 * 3600 * 1000; }
   function amtCell(s) {
@@ -550,7 +565,7 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
       return "<tr><td>" + dateFr(s.sale_date) + "</td><td>" + qtyP(d, s) + "</td><td>" + fmt(s.gross != null ? s.gross : s.amount) + "</td><td>" + fmt(s.amount) + '</td><td class="txt">' + esc(s.place || "") + "</td><td>" + (canUndo(s) ? delBtn("sales", s.id, "cette vente") : "") + "</td></tr>";
     }).join("");
   }
-  var SALE_HEAD = "<th>Jour</th><th>Qté</th><th>Total</th><th>Revient au patron</th><th>Client</th><th></th>";
+  var SALE_HEAD = "<th>Jour</th><th>Qté</th><th>Total</th><th>Au patron</th><th>Client</th><th></th>";
   var SALE_HINT = '<div class="hint">En cas d\'erreur, tu peux retirer une vente pendant 24 heures après l\'avoir enregistrée (bouton « Retirer »). Après ce délai, préviens le propriétaire.</div>';
 
   /* ---------- "Le point" de l'agent (jour / semaine / mois) ---------- */
@@ -1102,7 +1117,7 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
 
   function render(force) {
     var ae = document.activeElement;
-    if (!force && ae && $app.contains(ae) && /^(INPUT|SELECT|TEXTAREA)$/.test(ae.tagName)) { pendingRender = true; return; }
+    if (!force && ae && $app.contains(ae) && (/^(INPUT|SELECT|TEXTAREA)$/.test(ae.tagName) || (ae.classList && ae.classList.contains("chip")))) { pendingRender = true; return; }
     pendingRender = false;
     var open = {};
     Array.prototype.forEach.call($app.querySelectorAll("details"), function (el, i) { if (el.open) open[el.querySelector("summary").textContent] = 1; });
@@ -1192,6 +1207,14 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
       else if (Notification.permission === "denied") { toast("Notifications bloquées : autorise-les dans les réglages du navigateur pour ce site.", true); }
       else { Notification.requestPermission().then(function () { render(true); if (Notification.permission === "granted") toast("Notifications activées."); }); }
     }
+    else if (act === "chip") {
+      var gname = b.getAttribute("data-g"), cv = b.getAttribute("data-v"), inp = document.getElementById("s-" + gname);
+      Array.prototype.forEach.call(b.parentNode.querySelectorAll(".chip"), function (c2) { c2.classList.remove("on"); });
+      b.classList.add("on");
+      if (inp) { if (cv === "other") { inp.classList.remove("hide"); inp.value = ""; inp.focus(); } else { inp.classList.add("hide"); inp.value = cv; } }
+      if (gname === "supp") S.suppV = cv === "other" ? "" : cv; else S.shareV = cv === "other" ? "" : cv;
+      updateSaleCalc();
+    }
     else if (act === "ptmode") { S.pt = b.getAttribute("data-m"); render(true); }
     else if (act === "ptnav") {
       var pr = pointRange(), dr2 = parseInt(b.getAttribute("data-dir"), 10), rf = parseIso(S.ptRef || today());
@@ -1223,7 +1246,11 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
     }
   });
 
-  $app.addEventListener("input", function (e) { if (e.target && /^s-(qty|unit|deliv|supp|share)$/.test(e.target.id)) updateSaleCalc(); });
+  $app.addEventListener("input", function (e) {
+    if (!e.target) return;
+    if (e.target.id === "s-supp") S.suppV = e.target.value; else if (e.target.id === "s-share") S.shareV = e.target.value;
+    if (/^s-(qty|unit|supp|share)$/.test(e.target.id)) updateSaleCalc();
+  });
   $app.addEventListener("change", function (e) {
     if (e.target && e.target.id === "s-prod") {
       var opt = e.target.options[e.target.selectedIndex], q = $app.querySelector("#s-qty");
@@ -1308,9 +1335,9 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
     if (kind === "sale") {
       var q = num(v("qty")), unitP = num(v("unit"));
       if (q < 1 || !isFinite(unitP) || v("unit") === "") { toast("Indique la quantité et le prix du colis.", true); return; }
-      var cs = calcSale(q, unitP, v("deliv"), v("supp"), v("share"));
-      if (cs.net < 0) { toast("La livraison et ta part dépassent le total de la vente.", true); return; }
-      lsSet(SALE_KEY, JSON.stringify({ deliv: v("deliv"), share: v("share") }));
+      var cs = calcSale(unitP, v("supp"), v("share"));
+      if (cs.net < 0) { toast("Le prix du colis est trop bas : la livraison et ta part sont plus grandes que le prix.", true); return; }
+      lsSet(SALE_KEY, JSON.stringify({ share: v("share") })); S.suppV = null;
       var mine = agg(S.data || { shipments: [], sales: [], remittances: [] }, [S.session.user.id]), pid = v("product_id");
       if (mine.shipped <= 0) { toast("Tu n'as pas encore reçu de stock.", true); return; }
       var rem = pid && mine.byProduct[pid] ? mine.byProduct[pid].shipped - mine.byProduct[pid].sold : mine.remaining;
