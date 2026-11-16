@@ -174,6 +174,9 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
 .point .seg { margin-bottom: 8px; }
 .point .pnav { justify-content: space-between; margin: 6px 0 10px; }
 .point .pnav b { min-width: 0; flex: 1; }
+.calc { border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px; background: var(--field); }
+.calc .prow:first-child { padding-top: 6px; }
+.prow.strong.bad { background: #B42318; color: #fff; }
 </style>
 </head>
 <body>
@@ -509,6 +512,47 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
       '<div class="field wide"><label for="x-motif">Motif de la dépense</label><input id="x-motif" name="motif" type="text" autocomplete="off" placeholder="Ex : transport, repas, emballage" required></div>' +
       '<div class="field wide"><button class="primary" type="submit"' + (S.busy ? " disabled" : "") + ">Enregistrer la dépense</button></div></form></section>";
   }
+  /* ---------- vente avec calcul automatique ---------- */
+  var SALE_KEY = "gs-salepref-v1";
+  function salePref() { try { return JSON.parse(lsGet(SALE_KEY) || "{}") || {}; } catch (e) { return {}; } }
+  function calcSale(q, unit, deliv, supp, share) {
+    q = Math.max(0, num(q)); unit = Math.max(0, num(unit)); deliv = Math.max(0, num(deliv)); supp = Math.max(0, num(supp)); share = Math.max(0, num(share));
+    var gross = q * unit + supp, delivery = q * deliv + supp, part = q * share, net = gross - delivery - part;
+    return { gross: gross, delivery: delivery, share: part, net: net };
+  }
+  function saleFields(maxQty) {
+    var pf = salePref();
+    return '<div class="field"><label for="s-date">Date</label><input id="s-date" name="date" type="date" value="' + today() + '" required></div>' +
+      '<div class="field"><label for="s-qty">Quantité vendue</label><input id="s-qty" name="qty" type="number" inputmode="numeric" min="1" max="' + Math.max(0, Math.floor(maxQty)) + '" step="1" required></div>' +
+      '<div class="field"><label for="s-unit">Prix du colis (FCFA, par article)</label><input id="s-unit" name="unit" type="number" inputmode="decimal" min="0" step="any" required></div>' +
+      '<div class="field"><label for="s-place">Client et ville (facultatif)</label><input id="s-place" name="place" type="text" autocomplete="off"></div>' +
+      '<div class="field"><label for="s-deliv">Livraison comprise dans le prix (FCFA, par article)</label><input id="s-deliv" name="deliv" type="number" inputmode="decimal" min="0" step="any" value="' + esc(pf.deliv || "") + '" placeholder="0"></div>' +
+      '<div class="field"><label for="s-supp">Supplément de livraison (le client paie en plus, FCFA)</label><input id="s-supp" name="supp" type="number" inputmode="decimal" min="0" step="any" placeholder="0"></div>' +
+      '<div class="field"><label for="s-share">Ma part sur cette vente (FCFA, par article)</label><input id="s-share" name="share" type="number" inputmode="decimal" min="0" step="any" value="' + esc(pf.share || "") + '" placeholder="0"></div>' +
+      '<div class="field wide"><div id="s-calc" class="calc" aria-live="polite"></div></div>';
+  }
+  function updateSaleCalc() {
+    var box = document.getElementById("s-calc"); if (!box) return;
+    var g = function (id) { var e = document.getElementById(id); return e ? e.value : ""; };
+    if (!g("s-qty") || !g("s-unit")) { box.innerHTML = '<div class="muted small">Remplis la quantité et le prix du colis pour voir ce qui revient au patron.</div>'; return; }
+    var c = calcSale(g("s-qty"), g("s-unit"), g("s-deliv"), g("s-supp"), g("s-share"));
+    var row = function (l, v) { return '<div class="prow"><span>' + l + "</span><b>" + v + "</b></div>"; };
+    box.innerHTML = row("Total des ventes", money(c.gross)) + row("Pour les livreurs", money(c.delivery)) + row("Ma part", money(c.share)) +
+      '<div class="prow strong' + (c.net < 0 ? " bad" : "") + '"><span>' + (c.net < 0 ? "Attention : trop élevé" : "À remettre au patron") + "</span><b>" + money(c.net) + "</b></div>";
+  }
+  function canUndo(s) { var t = Date.parse(s.created_at || ""); return isFinite(t) && Date.now() - t < 24 * 3600 * 1000; }
+  function amtCell(s) {
+    var dl = num(s.delivery), sh = num(s.agent_share);
+    return fmt(s.amount) + (dl > 0 || sh > 0 ? '<div class="muted small">Total ' + fmt(s.gross != null ? s.gross : s.amount) + " · Livreurs " + fmt(dl) + " · Part " + fmt(sh) + "</div>" : "");
+  }
+  function agentSaleRows(list, d) {
+    return list.map(function (s) {
+      return "<tr><td>" + dateFr(s.sale_date) + "</td><td>" + qtyP(d, s) + "</td><td>" + fmt(s.gross != null ? s.gross : s.amount) + "</td><td>" + fmt(s.amount) + '</td><td class="txt">' + esc(s.place || "") + "</td><td>" + (canUndo(s) ? delBtn("sales", s.id, "cette vente") : "") + "</td></tr>";
+    }).join("");
+  }
+  var SALE_HEAD = "<th>Jour</th><th>Qté</th><th>Total</th><th>Revient au patron</th><th>Client</th><th></th>";
+  var SALE_HINT = '<div class="hint">En cas d\'erreur, tu peux retirer une vente pendant 24 heures après l\'avoir enregistrée (bouton « Retirer »). Après ce délai, préviens le propriétaire.</div>';
+
   /* ---------- "Le point" de l'agent (jour / semaine / mois) ---------- */
   var DAYS_FR = ["dimanche", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi"];
   function isoOf(dt) { return dt.getFullYear() + "-" + String(dt.getMonth() + 1).padStart(2, "0") + "-" + String(dt.getDate()).padStart(2, "0"); }
@@ -528,11 +572,11 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
   }
   function agentPoint(d, me, pid) {
     var R = pointRange(), within = function (x) { return x >= R.from && x <= R.to; }, before = function (x) { return x < R.from; };
-    var sold = 0, rev = 0, exp = 0, paid = 0, bal = 0;
+    var sold = 0, rev = 0, exp = 0, paid = 0, bal = 0, dlv = 0, shr = 0, net = 0;
     d.sales.forEach(function (s) {
       if (s.agent_id !== me || (pid && s.product_id !== pid)) return;
       var dt = String(s.sale_date || "").slice(0, 10);
-      if (within(dt)) { sold += num(s.qty); rev += num(s.amount); } else if (before(dt)) bal += num(s.amount);
+      if (within(dt)) { sold += num(s.qty); rev += num(s.gross != null ? s.gross : s.amount); net += num(s.amount); dlv += num(s.delivery); shr += num(s.agent_share); } else if (before(dt)) bal += num(s.amount);
     });
     (d.expenses || []).forEach(function (e) {
       if (e.agent_id !== me || (pid && e.product_id !== pid)) return;
@@ -544,7 +588,7 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
       var dt = String(r.paid_date || "").slice(0, 10);
       if (within(dt)) paid += num(r.amount); else if (before(dt)) bal -= num(r.amount);
     });
-    var due = rev - exp, rest = bal + due - paid;
+    var due = net - exp, rest = bal + due - paid;
     var row = function (l, v, cl) { return '<div class="prow' + (cl ? " " + cl : "") + '"><span>' + l + "</span><b>" + v + "</b></div>"; };
     var seg = '<div class="seg" role="group" aria-label="Période du point">' + [["day", "Jour"], ["week", "Semaine"], ["month", "Mois"]].map(function (m) {
       return '<button type="button" class="ghost' + (R.mode === m[0] ? " on" : "") + '" data-act="ptmode" data-m="' + m[0] + '">' + m[1] + "</button>";
@@ -552,7 +596,7 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
     return '<section class="panel point"><h2>Le point' + (pid ? " · " + esc(prodName(d, pid)) : "") + '</h2>' + seg +
       '<div class="pnav"><button type="button" class="ghost" data-act="ptnav" data-dir="-1" aria-label="Période précédente">‹</button><b>' + esc(R.label) + '</b><button type="button" class="ghost" data-act="ptnav" data-dir="1" aria-label="Période suivante">›</button></div>' +
       '<div class="prows">' + row("Articles vendus", fmt(sold)) + row("Total des ventes", money(rev)) +
-      row("Dépenses payées avec la recette", money(exp)) + row("Revient au patron", money(due)) +
+      row("Pour les livreurs", money(dlv)) + row("Ma part", money(shr)) + row("Dépenses payées avec la recette", money(exp)) + row("Revient au patron", money(due)) +
       (pid ? "" : row("Déjà versé au patron", money(paid)) + row("Report avant cette période", money(bal)) + row("Reste à remettre", money(rest), "strong")) + "</div>" +
       (pid ? '<div class="hint">Les versements ne sont pas séparés par produit : ton reste à remettre complet est dans « Tous les produits ».</div>' : "") + "</section>";
   }
@@ -560,22 +604,19 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
   function agentProductView(d, pid, me) {
     var dv = filterProduct(d, pid), a = agg(dv, [me]), pname = prodName(d, pid), rem = a.shipped - a.sold;
     var noStock = a.shipped <= 0, soldOut = !noStock && rem <= 0;
-    var rows = dv.sales.slice(0, 40).map(function (s) { return "<tr><td>" + dateFr(s.sale_date) + "</td><td>" + fmt(s.qty) + "</td><td>" + fmt(s.amount) + '</td><td class="txt">' + esc(s.place || "") + "</td></tr>"; }).join("");
+    var rows = agentSaleRows(dv.sales.slice(0, 40), d);
     var ship = dv.shipments.slice(0, 20).map(function (s) { return "<tr><td>" + dateFr(s.ship_date) + "</td><td>" + fmt(s.qty) + "</td></tr>"; }).join("");
     var form = noStock ? '<section class="panel notice"><h2>Pas encore de stock</h2><div class="hint">Tu n\'as pas encore reçu de « ' + esc(pname) + ' ». Tant que le propriétaire ne t\'en a pas envoyé, tu ne peux pas le vendre.</div></section>'
       : soldOut ? '<section class="panel notice"><h2>Stock épuisé</h2><div class="hint">Tu as vendu tout ton stock de « ' + esc(pname) + ' ». Tu pourras en vendre de nouveau quand le propriétaire t\'en enverra.</div></section>'
       : '<section class="panel"><h2>Vendre · ' + esc(pname) + '</h2><form data-form="sale" class="fields" novalidate><input type="hidden" name="product_id" value="' + esc(pid) + '">' +
-        '<div class="field"><label for="s-date">Date</label><input id="s-date" name="date" type="date" value="' + today() + '" required></div>' +
-        '<div class="field"><label for="s-qty">Quantité vendue</label><input id="s-qty" name="qty" type="number" inputmode="numeric" min="1" max="' + Math.max(0, Math.floor(rem)) + '" step="1" required></div>' +
-        '<div class="field"><label for="s-amount">Montant à me verser (FCFA)</label><input id="s-amount" name="amount" type="number" inputmode="decimal" min="0" step="any" required></div>' +
-        '<div class="field"><label for="s-place">Client et ville (facultatif)</label><input id="s-place" name="place" type="text" autocomplete="off"></div>' +
+        saleFields(rem) +
         '<div class="field wide"><button class="primary" type="submit"' + (S.busy ? " disabled" : "") + ">Enregistrer la vente</button></div></form></section>";
     return "<main>" + header() + ptabBar(d) +
       '<section class="panel result"><div class="bigline"><span class="eyebrow">Stock restant · ' + esc(pname) + '</span><span class="big ' + (rem < 0 ? "neg" : "") + '">' + fmt(rem) + '</span><span class="muted small">' + fmt(a.shipped) + " reçus · " + fmt(a.sold) + " vendus</span></div>" +
       '<div class="pair">' + statTile("Mes ventes", money(a.revenue), fmt(a.sold) + " vendus") + statTile("Prix de vente moyen", a.sold > 0 ? money(a.revenue / a.sold) : "—", "Par article vendu") + "</div></section>" +
       (agg(d, [me]).shipped > 0 ? actionTiles(["other"]) + (S.action === "other" ? agentExpPanel(pid) : "") : "") +
       form + agentPoint(d, me, pid) + salesChart(dv, [{ id: me, name: "Mes ventes" }], "Évolution de mes ventes · " + pname) +
-      '<section class="panel"><h2>Mes dernières ventes · ' + esc(pname) + '</h2>' + tableWrap("<th>Jour</th><th>Qté</th><th>Montant</th><th>Client</th>", rows || emptyRow(4, "Aucune vente."), "", 400) + "</section>" +
+      '<section class="panel"><h2>Mes dernières ventes · ' + esc(pname) + '</h2>' + SALE_HINT + tableWrap(SALE_HEAD, rows || emptyRow(6, "Aucune vente."), "", 520) + "</section>" +
       '<section class="panel"><h2>Stock reçu · ' + esc(pname) + '</h2>' + tableWrap("<th>Jour</th><th>Reçus</th>", ship || emptyRow(2, "Aucun envoi."), "", 0) + "</section>" + footer() + "</main>";
   }
 
@@ -588,9 +629,7 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
     var atabs = ptabBar(d);
     a.avgCost = 0;
     var recent = d.sales.slice(0, 40);
-    var rows = recent.map(function (s) {
-      return "<tr><td>" + dateFr(s.sale_date) + "</td><td>" + qtyP(d, s) + "</td><td>" + fmt(s.amount) + '</td><td class="txt">' + esc(s.place || "") + "</td></tr>";
-    }).join("");
+    var rows = agentSaleRows(recent, d);
     var ship = d.shipments.slice(0, 15).map(function (s) { return "<tr><td>" + dateFr(s.ship_date) + "</td><td>" + qtyP(d, s) + "</td></tr>"; }).join("");
     var rem = d.remittances.slice(0, 15).map(function (s) { return "<tr><td>" + dateFr(s.paid_date) + "</td><td>" + fmt(s.amount) + "</td></tr>"; }).join("");
     var dayMine = {};
@@ -614,14 +653,11 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
       '<div class="pair">' + statTile("Total à me verser", money(a.revenue), "Somme de tes ventes") + statTile("Déjà versé", money(a.remitted)) + (a.spent > 0 ? statTile("Dépenses payées", money(a.spent), "Prises sur ta recette") : "") + statTile("Reste à verser", money(a.toRemit), "", a.toRemit > 0 ? "warn" : "pos") + "</div></section>" +
       (noStock ? '<section class="panel notice"><h2>Pas encore de stock</h2><div class="hint">Tu n\'as pas encore reçu de stock. Tant que le propriétaire ne t\'a pas envoyé de stock, tu peux consulter le site mais tu ne peux rien enregistrer.</div></section>' : actionTiles(["other"]) + agentPanel) +
       (noStock ? "" : soldOut ? '<section class="panel notice"><h2>Stock épuisé</h2><div class="hint">Tu as vendu tout ton stock. Tu pourras enregistrer de nouvelles ventes quand le propriétaire t\'enverra du stock.</div></section>' : '<section class="panel"><h2>Enregistrer une vente</h2><form data-form="sale" class="fields" novalidate>' + prodField +
-      '<div class="field"><label for="s-date">Date</label><input id="s-date" name="date" type="date" value="' + today() + '" required></div>' +
-      '<div class="field"><label for="s-qty">Quantité vendue</label><input id="s-qty" name="qty" type="number" inputmode="numeric" min="1" max="' + Math.max(0, Math.floor(firstRem)) + '" step="1" required></div>' +
-      '<div class="field"><label for="s-amount">Montant à me verser (FCFA)</label><input id="s-amount" name="amount" type="number" inputmode="decimal" min="0" step="any" required></div>' +
-      '<div class="field"><label for="s-place">Client et ville (facultatif)</label><input id="s-place" name="place" type="text" autocomplete="off"></div>' +
+      saleFields(firstRem) +
       '<div class="field wide"><button class="primary" type="submit"' + (S.busy ? " disabled" : "") + ">Enregistrer la vente</button></div></form></section>") +
       stockByProd + (S.profile && S.profile.role === "agent" ? agentPoint(d, me, "") : "") + salesChart(d, [{ id: me, name: "Mes ventes" }], "Évolution de mes ventes") +
-      '<section class="panel"><h2>Mes dernières ventes</h2><div class="hint">Une vente enregistrée ne peut être retirée que par le propriétaire. En cas d\'erreur, préviens-le.</div>' +
-      tableWrap("<th>Jour</th><th>Qté</th><th>Montant</th><th>Client</th>", rows || emptyRow(4, "Aucune vente pour le moment."), "", 400) + "</section>" +
+      '<section class="panel"><h2>Mes dernières ventes</h2>' + SALE_HINT +
+      tableWrap(SALE_HEAD, rows || emptyRow(6, "Aucune vente pour le moment."), "", 520) + "</section>" +
       '<section class="panel"><h2>Mes autres dépenses par jour</h2><div class="hint">Dépenses payées avec ta recette, avec les motifs. Elles sont retirées de la somme à verser.</div>' + tableWrap("<th>Jour</th><th>Total du jour</th><th>Motifs</th>", dayMineRows || emptyRow(3, "Aucune dépense."), "", 420) + "</section>" +
       '<section class="panel"><h2>Stock reçu et sommes versées</h2><div class="pair2"><div>' +
       tableWrap("<th>Jour</th><th>Reçus</th>", ship || emptyRow(2, "Aucun envoi."), "", 0) + "</div><div>" +
@@ -903,7 +939,7 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
     var dayRows = Object.keys(byDay).sort().reverse().slice(0, 30).map(function (k) { return "<tr><td>" + dateFr(k) + "</td><td>" + fmt(byDay[k].q) + "</td><td>" + fmt(byDay[k].a) + "</td></tr>"; }).join("");
 
     var saleRows = cSales.slice(0, 25).map(function (s) {
-      return "<tr><td>" + dateFr(s.sale_date) + '</td><td class="txt">' + esc(nameOf[s.agent_id] || "") + "</td><td>" + qtyP(d, s) + "</td><td>" + fmt(s.amount) + '</td><td class="txt">' + esc(s.place || "") + "</td><td>" + delBtn("sales", s.id, "cette vente") + "</td></tr>";
+      return "<tr><td>" + dateFr(s.sale_date) + '</td><td class="txt">' + esc(nameOf[s.agent_id] || "") + "</td><td>" + qtyP(d, s) + "</td><td>" + amtCell(s) + '</td><td class="txt">' + esc(s.place || "") + "</td><td>" + delBtn("sales", s.id, "cette vente") + "</td></tr>";
     }).join("");
     var cShip = d.shipments.filter(function (s) { return ids[s.agent_id]; }).slice(0, 20).map(function (s) {
       return "<tr><td>" + dateFr(s.ship_date) + '</td><td class="txt">' + esc(nameOf[s.agent_id] || "") + "</td><td>" + qtyP(d, s) + "</td><td>" + fmt(s.unit_cost) + "</td><td>" + fmt(s.transport) + "</td><td>" + fmt(s.arrival_fees) + "</td><td>" + delBtn("shipments", s.id, "cet envoi") + "</td></tr>";
@@ -967,7 +1003,7 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
         return '<div class="agentcard"><div class="agname">' + esc(r.agent.name || r.agent.email) + '</div><div class="mini-grid">' + mini("Envoyés", fmt(r.shipped)) + mini("Vendus", fmt(r.sold)) + mini("Restants", fmt(r.remaining), r.remaining < 0 ? "neg" : "") + mini("Ventes (FCFA)", fmt(r.revenue)) + mini("Marge (FCFA)", fmt(r.revenue - r.cogs)) + "</div></div>";
       }).join("");
       var pSale = dp.sales.filter(function (s) { return ids[s.agent_id]; }).slice(0, 25).map(function (s) {
-        return "<tr><td>" + dateFr(s.sale_date) + '</td><td class="txt">' + esc(nameOf[s.agent_id] || "") + "</td><td>" + fmt(s.qty) + "</td><td>" + fmt(s.amount) + '</td><td class="txt">' + esc(s.place || "") + "</td><td>" + delBtn("sales", s.id, "cette vente") + "</td></tr>";
+        return "<tr><td>" + dateFr(s.sale_date) + '</td><td class="txt">' + esc(nameOf[s.agent_id] || "") + "</td><td>" + fmt(s.qty) + "</td><td>" + amtCell(s) + '</td><td class="txt">' + esc(s.place || "") + "</td><td>" + delBtn("sales", s.id, "cette vente") + "</td></tr>";
       }).join("");
       var pShip = dp.shipments.filter(function (s) { return ids[s.agent_id]; }).slice(0, 20).map(function (s) {
         return "<tr><td>" + dateFr(s.ship_date) + '</td><td class="txt">' + esc(nameOf[s.agent_id] || "") + "</td><td>" + fmt(s.qty) + "</td><td>" + fmt(s.unit_cost) + "</td><td>" + fmt(s.transport) + "</td><td>" + fmt(s.arrival_fees) + "</td><td>" + delBtn("shipments", s.id, "cet envoi") + "</td></tr>";
@@ -1082,6 +1118,7 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
     else if (S.profile.role === "agent") html = renderAgent();
     else html = renderPending();
     $app.innerHTML = html;
+    updateSaleCalc();
     Array.prototype.forEach.call($app.querySelectorAll("details"), function (el) { if (open[el.querySelector("summary").textContent]) el.open = true; });
     window.scrollTo(0, y);
   }
@@ -1186,6 +1223,7 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
     }
   });
 
+  $app.addEventListener("input", function (e) { if (e.target && /^s-(qty|unit|deliv|supp|share)$/.test(e.target.id)) updateSaleCalc(); });
   $app.addEventListener("change", function (e) {
     if (e.target && e.target.id === "s-prod") {
       var opt = e.target.options[e.target.selectedIndex], q = $app.querySelector("#s-qty");
@@ -1268,13 +1306,16 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
       return;
     }
     if (kind === "sale") {
-      var q = num(v("qty")), a = num(v("amount"));
-      if (q < 1 || !isFinite(a) || v("amount") === "") { toast("Indique la quantité et le montant.", true); return; }
+      var q = num(v("qty")), unitP = num(v("unit"));
+      if (q < 1 || !isFinite(unitP) || v("unit") === "") { toast("Indique la quantité et le prix du colis.", true); return; }
+      var cs = calcSale(q, unitP, v("deliv"), v("supp"), v("share"));
+      if (cs.net < 0) { toast("La livraison et ta part dépassent le total de la vente.", true); return; }
+      lsSet(SALE_KEY, JSON.stringify({ deliv: v("deliv"), share: v("share") }));
       var mine = agg(S.data || { shipments: [], sales: [], remittances: [] }, [S.session.user.id]), pid = v("product_id");
       if (mine.shipped <= 0) { toast("Tu n'as pas encore reçu de stock.", true); return; }
       var rem = pid && mine.byProduct[pid] ? mine.byProduct[pid].shipped - mine.byProduct[pid].sold : mine.remaining;
       if (q > rem) { toast("Tu n'as que " + fmt(rem) + " article(s) en stock pour ce produit.", true); return; }
-      var saleRow = { agent_id: S.session.user.id, sale_date: v("date") || today(), qty: Math.round(q), amount: a, place: v("place") || null }; if (pid) saleRow.product_id = pid;
+      var saleRow = { agent_id: S.session.user.id, sale_date: v("date") || today(), qty: Math.round(q), amount: cs.net, gross: cs.gross, delivery: cs.delivery, agent_share: cs.share, place: v("place") || null }; if (pid) saleRow.product_id = pid;
       run(api.insert("sales", saleRow), "Vente enregistrée.");
     } else if (kind === "shipment") {
       var sq = num(v("qty")), sc = num(v("unit_cost")), st = Math.max(0, num(v("transport"))), sa = Math.max(0, num(v("arrival_fees")));
