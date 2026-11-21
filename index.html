@@ -616,6 +616,14 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
       (pid ? '<div class="hint">Les versements ne sont pas séparés par produit : ton reste à remettre complet est dans « Tous les produits ».</div>' : "") + "</section>";
   }
 
+  function agentRemPanel(d, me) {
+    var a = agg(d, [me]);
+    return '<section class="panel"><h2>' + ico("money") + 'Mon versement au patron</h2><div class="hint">Écris la somme que tu as envoyée au patron. Elle est retirée de ce qui te reste à remettre (' + money(Math.max(0, a.toRemit)) + '). En cas d\'erreur, tu peux la retirer pendant 24 heures.</div>' +
+      '<form data-form="agentrem" class="fields" novalidate>' +
+      '<div class="field"><label for="v-date">Date</label><input id="v-date" name="date" type="date" value="' + today() + '"></div>' +
+      '<div class="field"><label for="v-amount">Montant versé (FCFA)</label><input id="v-amount" name="amount" type="number" inputmode="decimal" min="1" step="any" required></div>' +
+      '<div class="field wide"><button class="primary" type="submit"' + (S.busy ? " disabled" : "") + ">Enregistrer le versement</button></div></form></section>";
+  }
   function agentProductView(d, pid, me) {
     var dv = filterProduct(d, pid), a = agg(dv, [me]), pname = prodName(d, pid), rem = a.shipped - a.sold;
     var noStock = a.shipped <= 0, soldOut = !noStock && rem <= 0;
@@ -629,7 +637,7 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
     return "<main>" + header() + ptabBar(d) +
       '<section class="panel result"><div class="bigline"><span class="eyebrow">Stock restant · ' + esc(pname) + '</span><span class="big ' + (rem < 0 ? "neg" : "") + '">' + fmt(rem) + '</span><span class="muted small">' + fmt(a.shipped) + " reçus · " + fmt(a.sold) + " vendus</span></div>" +
       '<div class="pair">' + statTile("Mes ventes", money(a.revenue), fmt(a.sold) + " vendus") + statTile("Prix de vente moyen", a.sold > 0 ? money(a.revenue / a.sold) : "—", "Par article vendu") + "</div></section>" +
-      (agg(d, [me]).shipped > 0 ? actionTiles(["other"]) + (S.action === "other" ? agentExpPanel(pid) : "") : "") +
+      (agg(d, [me]).shipped > 0 ? actionTiles(["agentrem", "other"]) + (S.action === "agentrem" ? agentRemPanel(d, me) : "") + (S.action === "other" ? agentExpPanel(pid) : "") : "") +
       form + agentPoint(d, me, pid) + salesChart(dv, [{ id: me, name: "Mes ventes" }], "Évolution de mes ventes · " + pname) +
       '<section class="panel"><h2>Mes dernières ventes · ' + esc(pname) + '</h2>' + SALE_HINT + tableWrap(SALE_HEAD, rows || emptyRow(6, "Aucune vente."), "", 520) + "</section>" +
       '<section class="panel"><h2>Stock reçu · ' + esc(pname) + '</h2>' + tableWrap("<th>Jour</th><th>Reçus</th>", ship || emptyRow(2, "Aucun envoi."), "", 0) + "</section>" + footer() + "</main>";
@@ -646,7 +654,7 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
     var recent = d.sales.slice(0, 40);
     var rows = agentSaleRows(recent, d);
     var ship = d.shipments.slice(0, 15).map(function (s) { return "<tr><td>" + dateFr(s.ship_date) + "</td><td>" + qtyP(d, s) + "</td></tr>"; }).join("");
-    var rem = d.remittances.slice(0, 15).map(function (s) { return "<tr><td>" + dateFr(s.paid_date) + "</td><td>" + fmt(s.amount) + "</td></tr>"; }).join("");
+    var rem = d.remittances.slice(0, 15).map(function (s) { return "<tr><td>" + dateFr(s.paid_date) + "</td><td>" + fmt(s.amount) + "</td><td>" + (s.declared && canUndo(s) ? delBtn("remittances", s.id, "ce versement") : "") + "</td></tr>"; }).join("");
     var dayMine = {};
     (d.expenses || []).forEach(function (e) {
       if (e.agent_id !== me) return;
@@ -666,7 +674,7 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
     return '<main>' + header() + atabs +
       '<section class="panel result"><div class="bigline"><span class="eyebrow">Stock restant</span><span class="big ' + (a.remaining < 0 ? "neg" : "") + '">' + fmt(a.remaining) + '</span><span class="muted small">' + fmt(a.shipped) + " reçus · " + fmt(a.sold) + " vendus</span></div>" +
       '<div class="pair">' + statTile("Total à me verser", money(a.revenue), "Somme de tes ventes") + statTile("Déjà versé", money(a.remitted)) + (a.spent > 0 ? statTile("Dépenses payées", money(a.spent), "Prises sur ta recette") : "") + statTile("Reste à verser", money(a.toRemit), "", a.toRemit > 0 ? "warn" : "pos") + "</div></section>" +
-      (noStock ? '<section class="panel notice"><h2>Pas encore de stock</h2><div class="hint">Tu n\'as pas encore reçu de stock. Tant que le propriétaire ne t\'a pas envoyé de stock, tu peux consulter le site mais tu ne peux rien enregistrer.</div></section>' : actionTiles(["other"]) + agentPanel) +
+      (noStock ? '<section class="panel notice"><h2>Pas encore de stock</h2><div class="hint">Tu n\'as pas encore reçu de stock. Tant que le propriétaire ne t\'a pas envoyé de stock, tu peux consulter le site mais tu ne peux rien enregistrer.</div></section>' : actionTiles(["agentrem", "other"]) + (S.action === "agentrem" ? agentRemPanel(d, me) : "") + agentPanel) +
       (noStock ? "" : soldOut ? '<section class="panel notice"><h2>Stock épuisé</h2><div class="hint">Tu as vendu tout ton stock. Tu pourras enregistrer de nouvelles ventes quand le propriétaire t\'enverra du stock.</div></section>' : '<section class="panel"><h2>Enregistrer une vente</h2><form data-form="sale" class="fields" novalidate>' + prodField +
       saleFields(firstRem) +
       '<div class="field wide"><button class="primary" type="submit"' + (S.busy ? " disabled" : "") + ">Enregistrer la vente</button></div></form></section>") +
@@ -676,7 +684,7 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
       '<section class="panel"><h2>Mes autres dépenses par jour</h2><div class="hint">Dépenses payées avec ta recette, avec les motifs. Elles sont retirées de la somme à verser.</div>' + tableWrap("<th>Jour</th><th>Total du jour</th><th>Motifs</th>", dayMineRows || emptyRow(3, "Aucune dépense."), "", 420) + "</section>" +
       '<section class="panel"><h2>Stock reçu et sommes versées</h2><div class="pair2"><div>' +
       tableWrap("<th>Jour</th><th>Reçus</th>", ship || emptyRow(2, "Aucun envoi."), "", 0) + "</div><div>" +
-      tableWrap("<th>Jour</th><th>Versé (FCFA)</th>", rem || emptyRow(2, "Aucun versement."), "", 0) + "</div></div></section>" + footer() + "</main>";
+      tableWrap("<th>Jour</th><th>Versé (FCFA)</th><th></th>", rem || emptyRow(3, "Aucun versement."), "", 0) + "</div></div></section>" + footer() + "</main>";
   }
 
   /* ----- vue propriétaire ----- */
@@ -757,6 +765,18 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
       if (fresh.length) notifySales(d, fresh);
     }
     S.knownSales = ids;
+    var rids = {}; (d.remittances || []).forEach(function (x) { rids[x.id] = 1; });
+    if (S.knownRem) {
+      var rf = (d.remittances || []).filter(function (x) { return !S.knownRem[x.id] && x.declared; });
+      if (rf.length) {
+        var nm = {}; (d.profiles || []).forEach(function (p) { nm[p.id] = p.name || p.email; });
+        var rtot = 0; rf.forEach(function (x) { rtot += num(x.amount); });
+        var rt = rf.length === 1 ? "Versement déclaré" : rf.length + " versements déclarés", rb = rf.length === 1 ? (nm[rf[0].agent_id] || "Un agent") + " · " + money(rf[0].amount) : "Total : " + money(rtot);
+        if (!S.saleToastAt || Date.now() - S.saleToastAt > 2500) toast("💸 " + rt + " — " + rb);
+        if (notifyAllowed()) { try { navigator.serviceWorker.getRegistration().then(function (r) { if (r && r.showNotification) return r.showNotification(rt, { body: rb, icon: "icon-192.png", tag: "gs-rem" }); }).catch(function () {}); } catch (e) {} }
+      }
+    }
+    S.knownRem = rids;
   }
 
   function presentCountries(d) { return ownerTabs(d).list.filter(function (k) { return COUNTRIES.indexOf(k) >= 0; }); }
@@ -923,7 +943,7 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
   }
   var TILES = {
     shipment: ["truck", "Envoyer du stock", "blue"], remittance: ["money", "Versement reçu", "green"],
-    expense: ["social", "Dépense de campagne", "violet"], other: ["wallet", "Autre dépense", "orange"]
+    expense: ["social", "Dépense de campagne", "violet"], other: ["wallet", "Autre dépense", "orange"], agentrem: ["money", "Versement", "green"]
   };
   function actionTiles(kinds) {
     return '<section class="tiles" aria-label="Actions">' + kinds.map(function (k) {
@@ -960,7 +980,7 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
       return "<tr><td>" + dateFr(s.ship_date) + '</td><td class="txt">' + esc(nameOf[s.agent_id] || "") + "</td><td>" + qtyP(d, s) + "</td><td>" + fmt(s.unit_cost) + "</td><td>" + fmt(s.transport) + "</td><td>" + fmt(s.arrival_fees) + "</td><td>" + delBtn("shipments", s.id, "cet envoi") + "</td></tr>";
     }).join("");
     var cRem = d.remittances.filter(function (s) { return ids[s.agent_id]; }).slice(0, 20).map(function (s) {
-      return "<tr><td>" + dateFr(s.paid_date) + '</td><td class="txt">' + esc(nameOf[s.agent_id] || "") + "</td><td>" + fmt(s.amount) + "</td><td>" + delBtn("remittances", s.id, "ce versement") + "</td></tr>";
+      return "<tr><td>" + dateFr(s.paid_date) + '</td><td class="txt">' + esc(nameOf[s.agent_id] || "") + (s.declared ? ' <span class="muted small">(déclaré par l\'agent)</span>' : "") + "</td><td>" + fmt(s.amount) + "</td><td>" + delBtn("remittances", s.id, "ce versement") + "</td></tr>";
     }).join("");
     var cExp = d.expenses.filter(function (e) { return e.country === country; }).slice(0, 20).map(function (e) {
       return "<tr><td>" + dateFr(e.exp_date) + '</td><td class="txt">' + (e.agent_id ? "Payée par " + esc(nameOf[e.agent_id] || "l\'agent") : e.kind === "autre" ? "Autre" : "Campagne") + '</td><td class="txt">' + esc(e.label) + "</td><td>" + fmt(e.amount) + "</td><td>" + delBtn("expenses", e.id, "cette dépense") + "</td></tr>";
@@ -1155,7 +1175,7 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
     });
   }
   function startSession(s) {
-    S.session = s; S.profile = null; S.data = null; S.loading = false; S.knownSales = null;
+    S.session = s; S.profile = null; S.data = null; S.loading = false; S.knownSales = null; S.knownRem = null;
     clearInterval(pollTimer);
     if (!s) { render(true); return; }
     render(true);
@@ -1318,6 +1338,14 @@ h3.grp { margin-top: 12px; font-size: 0.78rem; letter-spacing: 0.1em; text-trans
       var pn = v("name");
       if (!pn) { toast("Écris le nom du produit.", true); return; }
       run(api.insert("products", { name: pn }), "Produit ajouté.");
+      return;
+    }
+    if (kind === "agentrem") {
+      var va = num(v("amount")), dueNow = agg(S.data || { shipments: [], sales: [], remittances: [] }, [S.session.user.id]).toRemit;
+      if (!isFinite(va) || va <= 0) { toast("Indique le montant versé.", true); return; }
+      if (va > Math.max(0, dueNow) + 0.0001) { toast("Le montant dépasse ce qu'il te reste à remettre (" + money(Math.max(0, dueNow)) + ").", true); return; }
+      S.action = null;
+      run(api.insert("remittances", { agent_id: S.session.user.id, paid_date: v("date") || today(), amount: va, declared: true }), "Versement enregistré.");
       return;
     }
     if (kind === "agentexp" || kind === "ownerexp") {
